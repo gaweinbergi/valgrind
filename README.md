@@ -3,9 +3,9 @@ Valgrind: an enhanced version for pmem
 
 [![Build Status](https://travis-ci.org/pmem/valgrind.svg)](https://travis-ci.org/pmem/valgrind)
 
-This is the top-level README.md the enhanced version on Valgrind.
+This is the top-level README.md for the pmem-enhanced version of Valgrind.
 This version has support for the new CLFLUSHOPT, PCOMMIT and CLWB
-instructions. It also introduces a new tool called pmemcheck which
+instructions. It also introduces a new tool called **pmemcheck**, which
 validates the correctness of stores made to persistent memory. Be aware
 that this is still a prototype tool.
 
@@ -19,15 +19,16 @@ The new tool is available in:
 All packages necessary to build this modified version of Valgrind are
 the same as for the original version.
 
-Note: This branch uses git submodule for VEX subproject. You can use git
-clone --recursive to download both or execute these commands on existing repository:
+Note: This branch uses a git submodule for the VEX subproject. You can use git
+clone --recursive to download both or execute these commands on an existing
+repository:
 ```
 $ git submodule init
 $ git submodule update
 ```
-Submodule update should be performed after each branch switch.
+A submodule update should be performed after each branch switch.
 
-Valgrind is built using these command at the top level:
+Valgrind is built using these commands at the top level:
 ```
 	$ ./autogen.sh
 	$ ./configure [--prefix=/where/to/install]
@@ -54,6 +55,10 @@ require that):
 ```
 	$ make install
 ```
+
+The pmem-aware version of Valgrind is also supported on FreeBSD. Supplemental
+package and build requirements are the same as those for
+[PMDK](https://github.com/pmem/pmdk/blob/master/README.md).
 
 For more information on Valgrind please refer to the original README
 files and the documentation which is available at:

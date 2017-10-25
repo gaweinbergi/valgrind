@@ -13,6 +13,7 @@ EXTRA_DIST = \
 	hginfo.stderr.exp \
 	hginfo.stdinB.gdb \
 	hginfo.stdoutB.exp \
+	hginfo.stdoutB.exp-freebsd \
 	hginfo.vgtest \
 	hgtls.stderrB.exp \
 	hgtls.stderr.exp \
@@ -22,7 +23,7 @@ EXTRA_DIST = \
 	mcblocklistsearch.stderr.exp \
 	mcblocklistsearch.stdinB.gdb \
 	mcblocklistsearch.vgtest \
-	mcblocklistsearch.stderrB.exp \
+	mcblocklistsearch.stderrB.exp mcblocklistsearch.stderrB.exp-freebsd \
 	mcbreak.stderrB.exp \
 	mcbreak.stderr.exp \
 	mcbreak.stdinB.gdb \
@@ -30,7 +31,7 @@ EXTRA_DIST = \
 	mcbreak.stdout.exp \
 	mcbreak.vgtest \
 	mcclean_after_fork.stderrB.exp \
-	mcclean_after_fork.stderr.exp \
+	mcclean_after_fork.stderr.exp mcclean_after_fork.stderr.exp-freebsd \
 	mcclean_after_fork.stdinB.gdb \
 	mcclean_after_fork.stdoutB.exp \
 	mcclean_after_fork.vgtest \
@@ -86,7 +87,7 @@ EXTRA_DIST = \
 	mcvabits.stdoutB.exp \
 	mcvabits.vgtest \
 	mcwatchpoints.stderrB.exp \
-	mcwatchpoints.stderr.exp \
+	mcwatchpoints.stderr.exp mcwatchpoints.stderr.exp-freebsd \
 	mcwatchpoints.stdinB.gdb \
 	mcwatchpoints.stdoutB.exp \
 	mcwatchpoints.vgtest \
@@ -111,7 +112,7 @@ EXTRA_DIST = \
 	nlgone_exit.stderr.exp \
 	nlgone_exit.stderrB.exp \
 	nlgone_exit.stdinB.gdb \
-	nlgone_exit.stdoutB.exp \
+	nlgone_exit.stdoutB.exp nlgone_exit.stdoutB.exp-freebsd \
 	nlgone_exit.vgtest \
 	nlgone_return.stderr.exp \
 	nlgone_return.stderrB.exp \
@@ -122,7 +123,7 @@ EXTRA_DIST = \
 	nlpasssigalrm.stderrB.exp \
 	nlpasssigalrm.stderr.exp \
 	nlpasssigalrm.stdinB.gdb \
-	nlpasssigalrm.stdoutB.exp \
+	nlpasssigalrm.stdoutB.exp nlpasssigalrm.stdoutB.exp-freebsd \
 	nlself_invalidate.stderrB.exp \
 	nlself_invalidate.stderr.exp \
 	nlself_invalidate.stdinB.gdb \

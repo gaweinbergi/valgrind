@@ -120,8 +120,10 @@ EXTRA_DIST =                                        \
 	hg06_readshared.stderr.exp                  \
 	hg06_readshared.vgtest                      \
 	hold_lock_1.stderr.exp                      \
+	hold_lock_1.stderr.exp-freebsd              \
 	hold_lock_1.vgtest                          \
 	hold_lock_2.stderr.exp                      \
+	hold_lock_2.stderr.exp-freebsd              \
 	hold_lock_2.vgtest                          \
 	linuxthreads_det.stderr.exp                 \
 	linuxthreads_det.stderr.exp-linuxthreads    \
@@ -210,6 +212,7 @@ EXTRA_DIST =                                        \
 	read_and_free_race.vgtest		    \
 	recursive_mutex.stderr.exp-linux            \
 	recursive_mutex.stderr.exp-darwin           \
+	recursive_mutex.stderr.exp-freebsd          \
 	recursive_mutex.vgtest                      \
 	rwlock_race.stderr.exp	                    \
 	rwlock_race.stderr.exp2	                    \
@@ -394,8 +397,11 @@ endif
 
 if HAVE_BUILTIN_ATOMIC_CXX
 check_PROGRAMS +=        \
-  annotate_smart_pointer \
-  tsan_unittest
+  annotate_smart_pointer
+endif
+
+if !VGCONF_OS_IS_FREEBSD
+check_PROGRAMS += tsan_unittest
 endif
 
 # clang 3.3 will generate errors about libstdc++ headers from 

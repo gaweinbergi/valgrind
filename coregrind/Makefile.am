@@ -45,10 +45,15 @@ valgrind_SOURCES = \
 	launcher-darwin.c \
 	m_debuglog.c
 endif
+if VGCONF_OS_IS_FREEBSD
+valgrind_SOURCES = \
+	launcher-freebsd.c \
+	m_debuglog.c
+endif
 
 valgrind_CPPFLAGS  = $(AM_CPPFLAGS_PRI)
 valgrind_CFLAGS    = $(AM_CFLAGS_PRI)
-valgrind_CCASFLAGS = $(AM_CCASFLAGS_PRI)
+valgrind_CCASFLAGS = $(AM_CCASFLAGS_PRI) $(AM_CPPFLAGS_PRI)
 valgrind_LDFLAGS   = $(AM_CFLAGS_PRI)
 if VGCONF_PLATFORMS_INCLUDE_X86_DARWIN
 valgrind_LDFLAGS   += -Wl,-read_only_relocs -Wl,suppress
@@ -72,6 +77,9 @@ if VGCONF_OS_IS_DARWIN
 # Some darwin specific stuff is needed as ptrace is not
 # fully supported on MacOS. Till we find someone courageous
 # having access to Darwin, 'none' implementation is used.
+vgdb_SOURCES += vgdb-invoker-none.c
+endif
+if VGCONF_OS_IS_FREEBSD
 vgdb_SOURCES += vgdb-invoker-none.c
 endif
 
@@ -248,6 +256,7 @@ noinst_HEADERS = \
 	m_syswrap/priv_syswrap-generic.h \
 	m_syswrap/priv_syswrap-linux.h \
 	m_syswrap/priv_syswrap-linux-variants.h \
+	m_syswrap/priv_syswrap-freebsd.h \
 	m_syswrap/priv_syswrap-darwin.h \
 	m_syswrap/priv_syswrap-main.h \
 	m_syswrap/priv_syswrap-xen.h \
@@ -343,6 +352,8 @@ COREGRIND_SOURCES_COMMON = \
 	m_dispatch/dispatch-s390x-linux.S \
 	m_dispatch/dispatch-mips32-linux.S \
 	m_dispatch/dispatch-mips64-linux.S \
+	m_dispatch/dispatch-x86-freebsd.S \
+	m_dispatch/dispatch-amd64-freebsd.S \
 	m_dispatch/dispatch-x86-darwin.S \
 	m_dispatch/dispatch-amd64-darwin.S \
 	m_gdbserver/inferiors.c \
@@ -364,6 +375,7 @@ COREGRIND_SOURCES_COMMON = \
 	m_gdbserver/valgrind-low-mips64.c \
 	m_gdbserver/version.c \
 	m_initimg/initimg-linux.c \
+	m_initimg/initimg-freebsd.c \
 	m_initimg/initimg-darwin.c \
 	m_initimg/initimg-pathscan.c \
 	m_mach/mach_basics.c \
@@ -377,6 +389,8 @@ COREGRIND_SOURCES_COMMON = \
 	m_scheduler/sched-lock-generic.c \
 	m_sigframe/sigframe-x86-linux.c \
 	m_sigframe/sigframe-amd64-linux.c \
+	m_sigframe/sigframe-x86-freebsd.c \
+	m_sigframe/sigframe-amd64-freebsd.c \
 	m_sigframe/sigframe-ppc32-linux.c \
 	m_sigframe/sigframe-ppc64-linux.c \
 	m_sigframe/sigframe-arm-linux.c \
@@ -396,17 +410,23 @@ COREGRIND_SOURCES_COMMON = \
 	m_syswrap/syscall-s390x-linux.S \
 	m_syswrap/syscall-mips32-linux.S \
 	m_syswrap/syscall-mips64-linux.S \
+	m_syswrap/syscall-x86-freebsd.S \
+	m_syswrap/syscall-amd64-freebsd.S \
 	m_syswrap/syscall-x86-darwin.S \
 	m_syswrap/syscall-amd64-darwin.S \
 	m_syswrap/syswrap-main.c \
 	m_syswrap/syswrap-generic.c \
 	m_syswrap/syswrap-linux.c \
 	m_syswrap/syswrap-linux-variants.c \
+	m_syswrap/syswrap-freebsd.c \
+	m_syswrap/syswrap-freebsd-variants.c \
 	m_syswrap/syswrap-darwin.c \
 	m_syswrap/syswrap-x86-linux.c \
 	m_syswrap/syswrap-amd64-linux.c \
 	m_syswrap/syswrap-ppc32-linux.c \
 	m_syswrap/syswrap-ppc64-linux.c \
+	m_syswrap/syswrap-x86-freebsd.c \
+	m_syswrap/syswrap-amd64-freebsd.c \
 	m_syswrap/syswrap-arm-linux.c \
 	m_syswrap/syswrap-arm64-linux.c \
 	m_syswrap/syswrap-s390x-linux.c \

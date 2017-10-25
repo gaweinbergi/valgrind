@@ -1,0 +1,9 @@
+#! /bin/sh
+
+dir=`dirname $0`
+
+$dir/filter_stderr |
+
+# XXX Do we need a syscall intercept like Linux?
+perl -p -e 's/.*\.\/procfs-cmdline-exe.*/procfs-cmdline-exe/' |
+perl -p -e 's/(Result of readlink.*\):).*/$1 XXX/'

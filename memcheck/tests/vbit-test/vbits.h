@@ -5,6 +5,18 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#if defined(__APPLE__) || defined(__FreeBSD__)
+#include <machine/endian.h>
+#if defined (__APPLE__)
+#define __BYTE_ORDER    BYTE_ORDER
+#define __LITTLE_ENDIAN LITTLE_ENDIAN
+#else
+#define __BYTE_ORDER    _BYTE_ORDER
+#define __LITTLE_ENDIAN _LITTLE_ENDIAN
+#endif
+#else
+#include <endian.h>
+#endif
 
 typedef uint64_t uint128_t[2];
 typedef uint64_t uint256_t[4];

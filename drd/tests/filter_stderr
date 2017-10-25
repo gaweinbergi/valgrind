@@ -29,7 +29,7 @@ sed \
 -e "s: BSS section of [^<]*/: BSS section of :g" \
 -e "s: vc \[[ ,:0-9]*\]: vc ...:g" \
 -e "s/[@\$*]* (drd_pthread_intercepts.c:/ (drd_pthread_intercepts.c:/" \
--e "/\(pthread\|sem\)_[a-zA-Z0-9_]*_intercept/d" \
+-e "/ [pthread|sem][a-zA-Z0-9_]*_intercept /d" \
 -e "s/ (\([a-zA-Z_]*\.c\):[0-9]*)/ (\1:?)/" \
 -e "s/ (\([a-zA-Z_]*\.h\):[0-9]*)/ (\1:?)/" \
 -e "s/ (\([a-zA-Z_]*\.cpp\):[0-9]*)/ (\1:?)/" \

@@ -9,18 +9,19 @@ EXTRA_DIST = \
 	annotate_hbefore.vgtest annotate_hbefore.stdout.exp \
 		annotate_hbefore.stderr.exp \
 	annotate_rwlock.vgtest annotate_rwlock.stdout.exp \
-		annotate_rwlock.stderr.exp \
+		annotate_rwlock.stderr.exp annotate_rwlock.stderr.exp-freebsd \
 	annotate_smart_pointer.vgtest annotate_smart_pointer.stdout.exp \
 		annotate_smart_pointer.stderr.exp \
 	cond_init_destroy.vgtest cond_init_destroy.stderr.exp \
 	cond_timedwait_invalid.vgtest cond_timedwait_invalid.stdout.exp \
 		cond_timedwait_invalid.stderr.exp \
+		cond_timedwait_invalid.stderr.exp-freebsd \
 	cond_timedwait_test.vgtest cond_timedwait_test.stdout.exp \
 		cond_timedwait_test.stderr.exp \
 	bar_bad.vgtest bar_bad.stdout.exp bar_bad.stderr.exp \
 	bar_trivial.vgtest bar_trivial.stdout.exp bar_trivial.stderr.exp \
 	free_is_write.vgtest free_is_write.stdout.exp \
-		free_is_write.stderr.exp \
+		free_is_write.stderr.exp free_is_write.stderr.exp-freebsd \
 	hg01_all_ok.vgtest hg01_all_ok.stdout.exp hg01_all_ok.stderr.exp \
 	hg02_deadlock.vgtest hg02_deadlock.stdout.exp hg02_deadlock.stderr.exp \
 	hg03_inherit.vgtest hg03_inherit.stdout.exp hg03_inherit.stderr.exp \
@@ -73,6 +74,7 @@ EXTRA_DIST = \
 	tc12_rwl_trivial.vgtest tc12_rwl_trivial.stdout.exp \
 		tc12_rwl_trivial.stderr.exp \
 		tc12_rwl_trivial.stderr.exp-darwin970 \
+		tc12_rwl_trivial.stderr.exp-freebsd \
 	tc13_laog1.vgtest tc13_laog1.stdout.exp tc13_laog1.stderr.exp \
 	tc14_laog_dinphils.vgtest tc14_laog_dinphils.stdout.exp \
 		tc14_laog_dinphils.stderr.exp \

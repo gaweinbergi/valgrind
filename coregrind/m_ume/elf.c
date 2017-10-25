@@ -28,7 +28,7 @@
    The GNU General Public License is contained in the file COPYING.
 */
 
-#if defined(VGO_linux)
+#if defined(VGO_linux) || defined(VGO_freebsd)
 
 #include "pub_core_basics.h"
 #include "pub_core_vki.h"
@@ -41,6 +41,7 @@
 #include "pub_core_libcfile.h"      // VG_(open) et al
 #include "pub_core_machine.h"       // VG_ELF_CLASS (XXX: which should be moved)
 #include "pub_core_mallocfree.h"    // VG_(malloc), VG_(free)
+#include "pub_core_vkiscnums.h"
 #include "pub_core_syscall.h"       // VG_(strerror)
 #include "pub_core_ume.h"           // self
 
@@ -160,7 +161,40 @@ ESZ(Addr) mapelf(struct elfinfo *e, ESZ(Addr) base)
    Int    i;
    SysRes res;
    ESZ(Addr) elfbrk = 0;
+#ifdef VGO_freebsd
+   ESZ(Word) mapsize;
+   ESZ(Addr) base_offset, base_vaddr, base_vlimit, baseaddr;
+   ESZ(Phdr) *ph0, *phlast;
 
+   if (e->e.e_phnum < 1) {
+      VG_(printf)("valgrind: m_ume.c: too few sections\n");
+      return 1;
+   }
+
+   /* Map the entire address space of the object. */
+   ph0 = NULL;
+   phlast = NULL;
+   for (i = 1; i < e->e.e_phnum; i++) {
+      ESZ(Phdr) *ph = &e->p[i];
+      if (ph->p_type != PT_LOAD)
+         continue;
+      if (ph0 == NULL)
+         ph0 = ph;
+      if (phlast == NULL || ph->p_vaddr > phlast->p_vaddr)
+         phlast = &e->p[i];
+   }
+   if (ph0 == NULL || phlast == NULL) {
+      VG_(printf)("valgrind: m_ume.c: too few loadable sections\n");
+      return 1;
+   }
+   base_offset = VG_PGROUNDDN(ph0->p_offset);
+   base_vaddr = VG_PGROUNDDN(ph0->p_vaddr);
+   base_vlimit = VG_PGROUNDUP(phlast->p_vaddr + phlast->p_memsz);
+   mapsize = base_vlimit - base_vaddr;
+   baseaddr = VG_PGROUNDDN(ph0->p_vaddr + base);
+   res = VG_(am_mmap_anon_fixed_client)(baseaddr, mapsize, VKI_PROT_NONE);
+   check_mmap(res, baseaddr, mapsize);
+#else /* #ifdef VGO_freebsd */
    for (i = 0; i < e->e.e_phnum; i++) {
       ESZ(Phdr) *ph = &e->p[i];
       ESZ(Addr) addr, brkaddr;
@@ -176,6 +210,7 @@ ESZ(Addr) mapelf(struct elfinfo *e, ESZ(Addr) base)
       if (brkaddr > elfbrk)
          elfbrk = brkaddr;
    }
+#endif /* #ifdef VGO_freebsd */
 
    for (i = 0; i < e->e.e_phnum; i++) {
       ESZ(Phdr) *ph = &e->p[i];
@@ -198,6 +233,11 @@ ESZ(Addr) mapelf(struct elfinfo *e, ESZ(Addr) base)
       bss     = addr+filesz;
       memsz   = ph->p_memsz;
       brkaddr = addr+memsz;
+
+#ifdef VGO_freebsd
+      if (brkaddr > elfbrk)
+         elfbrk = brkaddr;
+#endif
 
       // Tom says: In the following, do what the Linux kernel does and only
       // map the pages that are required instead of rounding everything to
@@ -222,6 +262,40 @@ ESZ(Addr) mapelf(struct elfinfo *e, ESZ(Addr) base)
       if (memsz > filesz) {
          UInt bytes;
 
+#ifdef XXXNOTDEFXXX // VGO_freebsd
+         bytes = VG_PGROUNDUP(bss) - bss;
+         if (bytes > 0) {
+            /* Make sure the end of the segment is writable */
+            if ((prot & VKI_PROT_WRITE) == 0) {
+               res = VG_(am_do_mprotect_NO_NOTIFY)((UWord)VG_PGROUNDDN(bss), VKI_PAGE_SIZE,
+                  prot|VKI_PROT_WRITE);
+               if (sr_isError(res)) {
+                  VG_(printf)("valgrind: m_ume.c: mprotect failed\n");
+                  return (1);
+               }
+            }
+            VG_(memset)((char *)bss, 0, bytes);
+            /* Reset the data protection back */
+            if ((prot & VKI_PROT_WRITE) == 0) {
+               res = VG_(am_do_mprotect_NO_NOTIFY)((UWord)VG_PGROUNDDN(bss), VKI_PAGE_SIZE,
+                  prot);
+               if (sr_isError(res)) {
+                  VG_(printf)("valgrind: m_ume.c: mprotect failed\n");
+                  return (1);
+               }
+            }
+         }
+         /* Overlay the BSS segment onto the proper region. */
+         if (VG_PGROUNDUP(brkaddr) > VG_PGROUNDUP(bss)) {
+            res = VG_(am_do_mprotect_NO_NOTIFY)((UWord)VG_PGROUNDUP(bss),
+               VG_PGROUNDUP(brkaddr) - VG_PGROUNDUP(bss), prot);
+            if (sr_isError(res)) {
+               VG_(printf)("valgrind: m_ume.c: mprotect failed\n");
+               return (1);
+            }
+            VG_(am_notify_mprotect)((Addr)VG_PGROUNDUP(bss), VG_PGROUNDUP(brkaddr) - VG_PGROUNDUP(bss), prot);
+         }
+#else
          bytes = VG_PGROUNDUP(brkaddr)-VG_PGROUNDUP(bss);
          if (bytes > 0) {
             if (0) VG_(debugLog)(0,"ume","mmap_anon_fixed_client #2\n");
@@ -240,8 +314,9 @@ ESZ(Addr) mapelf(struct elfinfo *e, ESZ(Addr) base)
             bytes = VKI_PAGE_SIZE - bytes;
             VG_(memset)((void *)bss, 0, bytes);
          }
-      }
-   }
+#endif
+      } /* if (memsz > filesz) */
+   } /* for (i = 0; i < e->e.e_phnum; i++) */
 
    return elfbrk;
 }
@@ -376,6 +451,15 @@ Int VG_(load_ELF)(Int fd, const HChar* name, /*MOD*/ExeInfo* info)
          VG_(pread)(fd, buf, ph->p_filesz, ph->p_offset);
          buf[ph->p_filesz] = '\0';
 
+#if defined(VGP_x86_freebsd)
+         sres._isError = True;
+         /* XXX FreeBSD's kernel overloads the interpreter name. */
+         if (VG_(strcmp)(buf, "/libexec/ld-elf.so.1") == 0 ||
+             VG_(strcmp)(buf, "/usr/libexec/ld-elf.so.1") == 0) {
+            sres = VG_(open)("/libexec/ld-elf32.so.1", VKI_O_RDONLY, 0);
+         }
+         if (sr_isError(sres))
+#endif
          sres = VG_(open)(buf, VKI_O_RDONLY, 0);
          if (sr_isError(sres)) {
             VG_(printf)("valgrind: m_ume.c: can't open interpreter\n");
@@ -529,7 +613,7 @@ Int VG_(load_ELF)(Int fd, const HChar* name, /*MOD*/ExeInfo* info)
    return 0;
 }
 
-#endif // defined(VGO_linux)
+#endif // defined(VGO_linux) || defined(VGO_freebsd)
 
 /*--------------------------------------------------------------------*/
 /*--- end                                                          ---*/

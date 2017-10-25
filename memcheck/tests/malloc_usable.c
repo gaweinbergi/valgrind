@@ -2,6 +2,9 @@
 #include "tests/malloc.h"
 #include <stdlib.h>
 #include <stdio.h>
+#if defined(VGO_freebsd)
+#include <malloc_np.h>
+#endif
 
 int main(void)
 {

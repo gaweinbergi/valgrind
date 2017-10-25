@@ -28,7 +28,7 @@
    The GNU General Public License is contained in the file COPYING.
 */
 
-#if defined(VGO_linux)
+#if (defined(VGO_linux) || defined(VGO_freebsd))
 
 #include "pub_core_basics.h"
 #include "pub_core_vki.h"
@@ -93,6 +93,9 @@ static void fill_ehdr(ESZ(Ehdr) *ehdr, Int num_phdrs)
    ehdr->e_ident[EI_CLASS]   = VG_ELF_CLASS;
    ehdr->e_ident[EI_DATA]    = VG_ELF_DATA2XXX;
    ehdr->e_ident[EI_VERSION] = EV_CURRENT;
+#if defined(VGO_freebsd)
+   ehdr->e_ident[EI_OSABI]   = ELFOSABI_FREEBSD;
+#endif
 
    ehdr->e_type = ET_CORE;
    ehdr->e_machine = VG_ELF_MACHINE;
@@ -197,6 +200,7 @@ static void fill_prpsinfo(const ThreadState *tst,
 
    VG_(memset)(prpsinfo, 0, sizeof(*prpsinfo));
 
+#if defined(VGO_linux)
    switch(tst->status) {
    case VgTs_Runnable:
    case VgTs_Yielding:
@@ -219,7 +223,11 @@ static void fill_prpsinfo(const ThreadState *tst,
 
    prpsinfo->pr_uid = 0;
    prpsinfo->pr_gid = 0;
-   
+#else
+   prpsinfo->pr_version = VKI_PRPSINFO_VERSION;
+   prpsinfo->pr_psinfosz = sizeof(struct vki_elf_prpsinfo);
+#endif
+
    if (VG_(resolve_filename)(VG_(cl_exec_fd), name, VKI_PATH_MAX)) {
       HChar *n = name+VG_(strlen)(name)-1;
 
@@ -228,7 +236,12 @@ static void fill_prpsinfo(const ThreadState *tst,
       if (n != name)
 	 n++;
 
+#if defined(VGO_linux)
       VG_(strncpy)(prpsinfo->pr_fname, n, sizeof(prpsinfo->pr_fname));
+#else
+      VG_(strncpy)(prpsinfo->pr_fname, n, sizeof(prpsinfo->pr_fname) - 1);
+      VG_(strncpy)(prpsinfo->pr_psargs, n, sizeof(prpsinfo->pr_psargs) - 1);
+#endif
    }
 }
 
@@ -241,17 +254,27 @@ static void fill_prstatus(const ThreadState *tst,
 
    VG_(memset)(prs, 0, sizeof(*prs));
 
+#if defined(VGO_linux)
    prs->pr_info.si_signo = si->si_signo;
    prs->pr_info.si_code = si->si_code;
    prs->pr_info.si_errno = 0;
+#else
+   prs->pr_version = VKI_PRSTATUS_VERSION;
+   prs->pr_statussz = sizeof(struct vki_elf_prstatus);
+   prs->pr_gregsetsz = sizeof(vki_elf_gregset_t);
+   prs->pr_fpregsetsz = sizeof(vki_elf_fpregset_t);
+   prs->pr_osreldate = VG_(getosreldate)();
+#endif
 
    prs->pr_cursig = si->si_signo;
 
    prs->pr_pid = tst->os_state.lwpid;
+#if defined(VGO_linux)
    prs->pr_ppid = 0;
    prs->pr_pgrp = VG_(getpgrp)();
    prs->pr_sid = VG_(getpgrp)();
-   
+#endif
+
 #if defined(VGP_s390x_linux)
    /* prs->pr_reg has struct type. Need to take address. */
    regs = (struct vki_user_regs_struct *)&(prs->pr_reg);
@@ -418,6 +441,46 @@ static void fill_prstatus(const ThreadState *tst,
    regs->MIPS_hi   = arch->vex.guest_HI;
    regs->MIPS_lo   = arch->vex.guest_LO;
 
+#elif defined(VGP_amd64_freebsd)
+   regs->rflags = LibVEX_GuestAMD64_get_rflags( &((ThreadArchState*)arch)->vex );
+   regs->rsp    = arch->vex.guest_RSP;
+   regs->rip    = arch->vex.guest_RIP;
+   regs->rbx    = arch->vex.guest_RBX;
+   regs->rcx    = arch->vex.guest_RCX;
+   regs->rdx    = arch->vex.guest_RDX;
+   regs->rsi    = arch->vex.guest_RSI;
+   regs->rdi    = arch->vex.guest_RDI;
+   regs->rbp    = arch->vex.guest_RBP;
+   regs->rax    = arch->vex.guest_RAX;
+   regs->r8     = arch->vex.guest_R8;
+   regs->r9     = arch->vex.guest_R9;
+   regs->r10    = arch->vex.guest_R10;
+   regs->r11    = arch->vex.guest_R11;
+   regs->r12    = arch->vex.guest_R12;
+   regs->r13    = arch->vex.guest_R13;
+   regs->r14    = arch->vex.guest_R14;
+   regs->r15    = arch->vex.guest_R15;
+
+#elif defined(VGP_x86_freebsd)
+   regs->eflags = LibVEX_GuestX86_get_eflags( &arch->vex );
+   regs->esp    = arch->vex.guest_ESP;
+   regs->eip    = arch->vex.guest_EIP;
+
+   regs->ebx    = arch->vex.guest_EBX;
+   regs->ecx    = arch->vex.guest_ECX;
+   regs->edx    = arch->vex.guest_EDX;
+   regs->esi    = arch->vex.guest_ESI;
+   regs->edi    = arch->vex.guest_EDI;
+   regs->ebp    = arch->vex.guest_EBP;
+   regs->eax    = arch->vex.guest_EAX;
+
+   regs->cs     = arch->vex.guest_CS;
+   regs->ds     = arch->vex.guest_DS;
+   regs->ss     = arch->vex.guest_SS;
+   regs->es     = arch->vex.guest_ES;
+   regs->fs     = arch->vex.guest_FS;
+   regs->gs     = arch->vex.guest_GS;
+
 #else
 #  error Unknown ELF platform
 #endif
@@ -515,6 +578,17 @@ static void fill_fpu(const ThreadState *tst, vki_elf_fpregset_t *fpu)
    DO(16); DO(17); DO(18); DO(19); DO(20); DO(21); DO(22); DO(23);
    DO(24); DO(25); DO(26); DO(27); DO(28); DO(29); DO(30); DO(31);
 #  undef DO
+
+#elif defined(VGP_x86_freebsd)
+
+#elif defined(VGP_amd64_freebsd)
+
+#  define DO(n)  VG_(memcpy)(fpu->xmm_space + n * 4, \
+                             &arch->vex.guest_YMM##n[0], 16)
+   DO(0);  DO(1);  DO(2);  DO(3);  DO(4);  DO(5);  DO(6);  DO(7);
+   DO(8);  DO(9);  DO(10); DO(11); DO(12); DO(13); DO(14); DO(15);
+#  undef DO
+
 #else
 #  error Unknown ELF platform
 #endif
@@ -560,14 +634,19 @@ void dump_one_thread(struct note **notelist, const vki_siginfo_t *si, ThreadId t
 
       fill_fpu(&VG_(threads)[tid], &fpu);
 #     if !defined(VGPV_arm_linux_android) && !defined(VGPV_x86_linux_android) \
-         && !defined(VGPV_mips32_linux_android)
+         && !defined(VGPV_mips32_linux_android) && !defined(VGO_freebsd)
       add_note(notelist, "CORE", NT_FPREGSET, &fpu, sizeof(fpu));
 #     endif
 
       fill_prstatus(&VG_(threads)[tid], &prstatus, si);
+#     if defined(VGO_freebsd)
+      add_note(notelist, "FreeBSD", NT_FPREGSET, &fpu, sizeof(fpu));
+      add_note(notelist, "FreeBSD", NT_PRSTATUS, &prstatus, sizeof(prstatus));
+#     else
 #     if !defined(VGPV_arm_linux_android) && !defined(VGPV_x86_linux_android) \
          && !defined(VGPV_mips32_linux_android)
       add_note(notelist, "CORE", NT_PRSTATUS, &prstatus, sizeof(prstatus));
+#     endif
 #     endif
 }
 
@@ -670,8 +749,12 @@ void make_elf_coredump(ThreadId tid, const vki_siginfo_t *si, ULong max_size)
    dump_one_thread(&notelist, si, tid);
 
    fill_prpsinfo(&VG_(threads)[tid], &prpsinfo);
+#  if defined(VGO_freebsd)
+   /* gdb doesn't care about the order of these, but some freebsd tools do. */
+   add_note(&notelist, "FreeBSD", NT_PRPSINFO, &prpsinfo, sizeof(prpsinfo));
+#  endif
 #  if !defined(VGPV_arm_linux_android) && !defined(VGPV_x86_linux_android) \
-      && !defined(VGPV_mips32_linux_android)
+      && !defined(VGPV_mips32_linux_android) && !defined(VGO_freebsd)
    add_note(&notelist, "CORE", NT_PRPSINFO, &prpsinfo, sizeof(prpsinfo));
 #  endif
 

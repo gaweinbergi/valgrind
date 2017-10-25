@@ -44,6 +44,7 @@ SUPP_FILES = \
 	glibc-2.2-LinuxThreads-helgrind.supp \
 	glibc-2.X-drd.supp \
 	exp-sgcheck.supp \
+	freebsd.supp \
 	darwin9.supp darwin9-drd.supp \
 	darwin10.supp darwin10-drd.supp \
 	darwin11.supp darwin12.supp darwin13.supp \
@@ -100,6 +101,7 @@ perf: check
 EXTRA_DIST = \
 	COPYING.DOCS \
 	README_DEVELOPERS \
+	README_FREEBSD \
 	README_PACKAGERS \
 	README_MISSING_SYSCALL_OR_IOCTL \
 	README.s390 \

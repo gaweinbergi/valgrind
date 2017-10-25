@@ -1,6 +1,6 @@
 /*
  * Persistent memory checker.
- * Copyright (c) 2014-2015, Intel Corporation.
+ * Copyright (c) 2014-2018, Intel Corporation.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -20,6 +20,10 @@
 #include <sys/mman.h>
 
 #include "../pmemcheck.h"
+
+#ifdef __FreeBSD__
+#define MAP_NORESERVE 0	/* XXX */
+#endif
 
 /**
 * \brief Makes and maps a temporary file.
@@ -46,8 +50,8 @@ make_map_tmpfile(size_t size)
     }
 
     void *base;
-    if ((base = mmap(NULL, size, PROT_WRITE, MAP_PRIVATE|MAP_NORESERVE, fd,
-            0)) == MAP_FAILED) {
+    if ((base = mmap(NULL, size, PROT_READ|PROT_WRITE,
+                     MAP_PRIVATE|MAP_NORESERVE, fd, 0)) == MAP_FAILED) {
         int oerrno = errno;
         if (fd != -1)
             close(fd);

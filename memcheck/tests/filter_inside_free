@@ -1,0 +1,8 @@
+#! /bin/sh
+
+# Allow for allocations larger than requested
+sed "s/inside a block of size [0-9]* free'd/inside a block of size ... free'd/" |
+
+./filter_stderr "$@"
+
+exit 0

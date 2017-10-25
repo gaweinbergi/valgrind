@@ -43,7 +43,10 @@ nobase_pkginclude_HEADERS = \
 	pub_tool_xarray.h		\
 	valgrind.h			\
 	vki/vki-linux.h			\
+	vki/vki-freebsd.h		\
 	vki/vki-darwin.h		\
+	vki/vki-machine-types-amd64-freebsd.h	\
+	vki/vki-machine-types-x86-freebsd.h	\
 	vki/vki-posixtypes-amd64-linux.h \
 	vki/vki-posixtypes-arm64-linux.h \
 	vki/vki-posixtypes-ppc32-linux.h \
@@ -58,6 +61,8 @@ nobase_pkginclude_HEADERS = \
 	vki/vki-ppc32-linux.h		\
 	vki/vki-ppc64-linux.h		\
 	vki/vki-x86-linux.h		\
+	vki/vki-amd64-freebsd.h		\
+	vki/vki-x86-freebsd.h		\
 	vki/vki-arm-linux.h		\
 	vki/vki-s390x-linux.h		\
 	vki/vki-mips32-linux.h		\
@@ -67,6 +72,7 @@ nobase_pkginclude_HEADERS = \
 	vki/vki-scnums-ppc32-linux.h	\
 	vki/vki-scnums-ppc64-linux.h	\
 	vki/vki-scnums-x86-linux.h	\
+	vki/vki-scnums-freebsd.h	\
 	vki/vki-scnums-arm-linux.h	\
 	vki/vki-scnums-s390x-linux.h	\
 	vki/vki-scnums-mips32-linux.h	\

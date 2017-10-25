@@ -17,6 +17,19 @@
 #include <unistd.h>
 #include "../../config.h"
 
+#define CMDLINE_PID "/proc/%d/cmdline"
+#ifdef VGO_freebsd
+#define CMDLINE_SELF "/proc/curproc/cmdline"
+#define EXEFILE_LABEL "/proc/<pid>/file"
+#define EXEFILE_PID "/proc/%d/file"
+#define EXEFILE_SELF "/proc/curproc/file"
+#else
+#define CMDLINE_SELF "/proc/self/cmdline"
+#define EXEFILE_LABEL "/proc/<pid>/exe"
+#define EXEFILE_PID "/proc/%d/exe"
+#define EXEFILE_SELF "/proc/self/exe"
+#endif
+
 static void test_cmdline(const char* const cwd, const char* const label,
                          const char* const path)
 {
@@ -98,18 +111,18 @@ int main(int argc, char** argv)
     perror("getcwd");
   strcat(cwd, "/");
 
-  snprintf(path, sizeof(path), "/proc/%d/cmdline", getpid());
+  snprintf(path, sizeof(path), CMDLINE_PID, getpid());
 
-  test_cmdline(cwd, "/proc/self/cmdline", "/proc/self/cmdline");
+  test_cmdline(cwd, CMDLINE_SELF, CMDLINE_SELF);
   test_cmdline(cwd, "/proc/<pid>/cmdline", path);
 
-  snprintf(path, sizeof(path), "/proc/%d/exe", getpid());
+  snprintf(path, sizeof(path), EXEFILE_PID, getpid());
 
-  test_readlink(cwd, "/proc/self/exe", "/proc/self/exe");
-  test_readlink(cwd, "/proc/<pid>/exe", path);
+  test_readlink(cwd, EXEFILE_SELF, EXEFILE_SELF);
+  test_readlink(cwd, EXEFILE_LABEL, path);
 
-  test_readlinkat(cwd, "/proc/self/exe", "/proc/self/exe");
-  test_readlinkat(cwd, "/proc/<pid>/exe", path);
+  test_readlinkat(cwd, EXEFILE_SELF, EXEFILE_SELF);
+  test_readlinkat(cwd, EXEFILE_LABEL, path);
 
   return 0;
 }

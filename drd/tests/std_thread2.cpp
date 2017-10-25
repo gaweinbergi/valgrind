@@ -26,6 +26,7 @@ int main(int argc, char** argv)
   return 0;
 }
 
+#if defined(__GNUC__) && __GNUC__ -0 < 6 // Backport from Valgrind 3.12
 //
 // From libstdc++-v3/src/c++11/thread.cc
 //
@@ -70,3 +71,4 @@ namespace std
     }
   }
 }
+#endif

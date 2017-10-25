@@ -7,11 +7,14 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <assert.h>
+#include <errno.h>
 
 #if defined(VGO_darwin)
-#define OS_IS_DARWIN 1
+#define EXPRET EINVAL
+#elif defined(VGO_freebsd)
+#define EXPRET EPERM
 #else
-#define OS_IS_DARWIN 0
+#define EXPRET 0
 #endif
 
 /* Do trivial stuff with a reader-writer lock. */
@@ -32,7 +35,7 @@ int main ( void )
   r = pthread_rwlock_unlock( &rwl );      assert(r == 0);
 
   /* this should fail - lock is unowned now */
-  r = pthread_rwlock_unlock( &rwl );      assert(OS_IS_DARWIN || r == 0);
+  r = pthread_rwlock_unlock( &rwl );      assert(r == EXPRET);
 
   r = pthread_rwlock_destroy( &rwl );     assert(r == 0);
 

@@ -29,7 +29,7 @@
    The GNU General Public License is contained in the file COPYING.
 */
 
-#if defined(VGO_linux)
+#if defined(VGO_linux) || defined(VGO_freebsd)
 
 #include "pub_core_basics.h"
 #include "pub_core_vki.h"
@@ -1603,13 +1603,13 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
    for (i = 0; i < VG_(sizeXA)(di->fsm.maps); i++) {
       struct _DebugInfoMapping* map = VG_(indexXA)(di->fsm.maps, i);
       if (map->rx)
-         TRACE_SYMTAB("rx_map:  avma %#lx   size %lu  foff %lu\n",
+         TRACE_SYMTAB("rx_map:  avma %#lx   size %lu  foff %lld\n",
                       map->avma, map->size, map->foff);
    }
    for (i = 0; i < VG_(sizeXA)(di->fsm.maps); i++) {
       struct _DebugInfoMapping* map = VG_(indexXA)(di->fsm.maps, i);
       if (map->rw)
-         TRACE_SYMTAB("rw_map:  avma %#lx   size %lu  foff %lu\n",
+         TRACE_SYMTAB("rw_map:  avma %#lx   size %lu  foff %lld\n",
                       map->avma, map->size, map->foff);
    }
 
@@ -1735,7 +1735,8 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
             }
          }
 
-         /* Try to get the soname.  If there isn't one, use "NONE".
+         /* Try to get the soname.  If there isn't one, try to use last
+            component of filename instead in DSO case. Otherwise use "NONE".
             The seginfo needs to have some kind of soname in order to
             facilitate writing redirect functions, since all redirect
             specifications require a soname (pattern). */
@@ -1790,8 +1791,19 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
 
    /* TOPLEVEL */
 
-   /* If, after looking at all the program headers, we still didn't 
-      find a soname, add a fake one. */
+   if (di->soname == NULL && ehdr_m.e_type == ET_DYN && di->fsm.filename != NULL) {
+         char *filename = di->fsm.filename;
+         char *p = filename + VG_(strlen)(filename);
+         /* Extract last component. */
+         while (*p != '/' && p > filename)
+            p--;
+         if (*p == '/')
+            p++;
+         if (*p != '\0') {
+            TRACE_SYMTAB("No soname found; using filename \"%s\" instead\n", p);
+            di->soname = ML_(dinfo_strdup)("di.redi.1", p);
+         }
+   }
    if (di->soname == NULL) {
       TRACE_SYMTAB("No soname found; using (fake) \"NONE\"\n");
       di->soname = ML_(dinfo_strdup)("di.redi.2", "NONE");
@@ -1805,7 +1817,7 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
    for (i = 0; i < VG_(sizeXA)(di->fsm.maps); i++) {
       struct _DebugInfoMapping* map = VG_(indexXA)(di->fsm.maps, i);
       if (map->rx)
-         TRACE_SYMTAB("rx: at %#lx are mapped foffsets %ld .. %ld\n",
+         TRACE_SYMTAB("rx: at %#lx are mapped foffsets %lld .. %lld\n",
                       map->avma, map->foff, map->foff + map->size - 1 );
    }
    TRACE_SYMTAB("rx: contains these svma regions:\n");
@@ -1818,7 +1830,7 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
    for (i = 0; i < VG_(sizeXA)(di->fsm.maps); i++) {
       struct _DebugInfoMapping* map = VG_(indexXA)(di->fsm.maps, i);
       if (map->rw)
-         TRACE_SYMTAB("rw: at %#lx are mapped foffsets %ld .. %ld\n",
+         TRACE_SYMTAB("rw: at %#lx are mapped foffsets %lld .. %lld\n",
                       map->avma, map->foff, map->foff + map->size - 1 );
    }
    TRACE_SYMTAB("rw: contains these svma regions:\n");
@@ -1861,7 +1873,7 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
          }
       }
 
-      TRACE_SYMTAB(" [sec %2ld]  %s %s  al%2u  foff %6ld .. %6ld  "
+      TRACE_SYMTAB(" [sec %2ld]  %s %s  al%2u  foff %6lld .. %6lld  "
                    "  svma %p  name \"%s\"\n", 
                    i, inrx ? "rx" : "  ", inrw ? "rw" : "  ", alyn,
                    foff, foff+size-1, (void*)svma, name);
@@ -2158,7 +2170,8 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
 #     if defined(VGP_x86_linux) || defined(VGP_amd64_linux) \
          || defined(VGP_arm_linux) || defined (VGP_s390x_linux) \
          || defined(VGP_mips32_linux) || defined(VGP_mips64_linux) \
-         || defined(VGP_arm64_linux)
+         || defined(VGP_arm64_linux) \
+         || defined(VGP_x86_freebsd) || defined(VGP_amd64_freebsd)
       /* Accept .plt where mapped as rx (code) */
       if (0 == VG_(strcmp)(name, ".plt")) {
          if (inrx && !di->plt_present) {
@@ -2899,7 +2912,8 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
          && !defined(VGP_ppc64le_linux) \
          && !defined(VGPV_arm_linux_android) \
          && !defined(VGPV_x86_linux_android) \
-         && !defined(VGP_mips64_linux)
+         && !defined(VGP_mips64_linux) \
+         && !defined(VGP_amd64_freebsd)
       // JRS 31 July 2014: stabs reading is currently broken and
       // therefore deactivated.
       //if (stab_img && stabstr_img) {
@@ -3036,7 +3050,7 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
    /* NOTREACHED */
 }
 
-#endif // defined(VGO_linux)
+#endif // defined(VGO_linux) || defined(VGO_freebsd)
 
 /*--------------------------------------------------------------------*/
 /*--- end                                                          ---*/

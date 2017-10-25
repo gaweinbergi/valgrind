@@ -55,6 +55,7 @@ dist_noinst_SCRIPTS = \
 	filter_ioctl_moans \
 	filter_linenos \
 	filter_none_discards \
+	filter_procfs_freebsd \
 	filter_shell_output \
 	filter_stderr \
 	filter_timestamp \
@@ -87,7 +88,7 @@ EXTRA_DIST = \
 	empty-exe.vgtest empty-exe.stderr.exp \
 	exec-sigmask.vgtest exec-sigmask.stdout.exp \
 	exec-sigmask.stdout.exp2 exec-sigmask.stdout.exp3 exec-sigmask.stderr.exp \
-	execve.vgtest execve.stdout.exp execve.stderr.exp \
+	execve.vgtest execve.stdout.exp execve.stderr.exp execve.stderr.exp-freebsd  \
 	faultstatus.vgtest faultstatus.stderr.exp faultstatus.stderr.exp-s390x \
 	fcntl_setown.vgtest fcntl_setown.stdout.exp fcntl_setown.stderr.exp \
 	fdleak_cmsg.stderr.exp fdleak_cmsg.vgtest \
@@ -118,7 +119,8 @@ EXTRA_DIST = \
 	procfs-linux.stderr.exp-with-readlinkat \
 	procfs-linux.stderr.exp-without-readlinkat \
 	procfs-linux.vgtest \
-	procfs-non-linux.stderr.exp procfs-non-linux.vgtest \
+	procfs-non-linux.stderr.exp procfs-non-linux.stderr.exp-freebsd \
+	procfs-non-linux.vgtest \
 	pth_atfork1.stderr.exp pth_atfork1.stdout.exp pth_atfork1.vgtest \
 	pth_blockedsig.stderr.exp \
 	pth_blockedsig.stdout.exp pth_blockedsig.vgtest \
@@ -141,6 +143,7 @@ EXTRA_DIST = \
 		require-text-symbol-1.stderr.exp \
 	require-text-symbol-2.vgtest \
 		require-text-symbol-2.stderr.exp-libcso6 \
+		require-text-symbol-2.stderr.exp-libcso7 \
 	res_search.stderr.exp res_search.stdout.exp res_search.vgtest \
 	resolv.stderr.exp resolv.stdout.exp resolv.vgtest \
 	rlimit_nofile.stderr.exp rlimit_nofile.stdout.exp rlimit_nofile.vgtest \
@@ -150,6 +153,7 @@ EXTRA_DIST = \
 	semlimit.stderr.exp semlimit.stdout.exp semlimit.vgtest \
 	shell shell.vgtest shell.stderr.exp shell.stderr.exp-dash \
 	    shell.stdout.exp shell.stderr.exp-dash2 \
+	    shell.stderr.exp-freebsd shell_dir.stderr.exp-freebsd \
 	shell_badinterp shell_badinterp.vgtest shell_badinterp.stderr.exp \
 	shell_binaryfile shell_binaryfile.vgtest shell_binaryfile.stderr.exp \
 	shell_dir.vgtest shell_dir.stderr.exp \
@@ -237,7 +241,7 @@ if ! VGCONF_PLATFORMS_INCLUDE_AMD64_DARWIN
 	thread-exits
 endif
 # This doesn't appear to be compilable on Darwin.
-if ! VGCONF_OS_IS_DARWIN
+if VGCONF_OS_IS_LINUX
    check_PROGRAMS += rlimit64_nofile 
 endif
 
@@ -272,8 +276,12 @@ pth_mutexspeed_LDADD	= -lpthread
 pth_once_LDADD		= -lpthread
 pth_rwlock_LDADD	= -lpthread
 pth_stackalign_LDADD	= -lpthread
-res_search_LDADD        = -lresolv -lpthread
-resolv_LDADD            = -lresolv -lpthread
+if VGCONF_OS_IS_FREEBSD
+ res_search_LDADD       = -lpthread
+else
+ res_search_LDADD       = -lresolv -lpthread
+ resolv_LDADD           = -lresolv -lpthread
+endif
 semlimit_LDADD		= -lpthread
 thread_exits_LDADD	= -lpthread
 threaded_fork_LDADD	= -lpthread

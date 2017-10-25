@@ -1,0 +1,20 @@
+Packages required: autoconf, automake and gmake.
+$ ./autogen.sh
+$ ./configure --prefix=/where/ever
+$ gmake
+$ gmake install
+
+Mon Feb 19 2018 - gaweinbergi
+	This fork of Valgrind 3.10 for FreeBSD 11.1 supports testing
+	for PMDK, including the pmem-aware tool pmemcheck.
+	It is not yet a complete implementation of Valgrind -
+	approximately 20% of the regression tests fail.
+
+Sun Aug 19 20:26:48 UTC 2007 PS_STRINGS
+	Valgrind barfs all over the place on setproctitle.
+
+	This also manifests itself in a corrupted environment in
+	children of child processes when --trace-children=yes is used.
+
+	To cope correctly Valgrind must install the modified argv/envp
+	pointers in the ps-strings area, and mark it as accessible.

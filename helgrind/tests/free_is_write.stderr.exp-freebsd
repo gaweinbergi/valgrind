@@ -1,0 +1,49 @@
+
+Start.
+---Thread-Announcement------------------------------------------
+
+Thread #x was created
+   ...
+   by 0x........: pthread_create (hg_intercepts.c:...)
+   by 0x........: main (free_is_write.c:32)
+
+---Thread-Announcement------------------------------------------
+
+Thread #x is the program's root thread
+
+----------------------------------------------------------------
+
+Possible data race during write of size 1 at 0x........ by thread #x
+Locks held: none
+   at 0x........: free (vg_replace_malloc.c:...)
+   by 0x........: thread_func (free_is_write.c:15)
+   by 0x........: mythread_wrapper (hg_intercepts.c:...)
+   ...
+
+This conflicts with a previous read of size 1 by thread #x
+Locks held: none
+   at 0x........: main (free_is_write.c:36)
+ Address 0x........ is 5 bytes inside an unallocated block of size 16 in arena "client"
+
+----------------------------------------------------------------
+
+Possible data race during write of size 4 at 0x........ by thread #x
+Locks held: none
+   ...
+
+This conflicts with a previous read of size 4 by thread #x
+Locks held: none
+   ...
+   by 0x........: pthread_join_WRK (hg_intercepts.c:...)
+   by 0x........: pthread_join (hg_intercepts.c:...)
+   by 0x........: main (free_is_write.c:39)
+ Address 0x........ is 0 bytes inside a block of size 1,112 alloc'd
+   at 0x........: calloc (vg_replace_malloc.c:...)
+   ...
+   by 0x........: pthread_create (hg_intercepts.c:...)
+   by 0x........: main (free_is_write.c:32)
+ Block was alloc'd by thread #x
+
+Done.
+
+ERROR SUMMARY: 3 errors from 2 contexts (suppressed: 0 from 0)
