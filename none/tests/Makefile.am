@@ -330,7 +330,7 @@ else
  res_search_LDADD       = -lresolv -lpthread
  resolv_LDADD           = -lresolv -lpthread
  resolv_CFLAGS		= $(AM_CFLAGS)
- if VGCONF_OS_IS_SOLARIS
+if VGCONF_OS_IS_SOLARIS
   resolv_CFLAGS		+= -U_REENTRANT
  endif
 endif
