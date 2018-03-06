@@ -332,7 +332,7 @@ else
  resolv_CFLAGS		= $(AM_CFLAGS)
 if VGCONF_OS_IS_SOLARIS
   resolv_CFLAGS		+= -U_REENTRANT
- endif
+endif
 endif
 semlimit_LDADD		= -lpthread
 sha1_test_CFLAGS	= $(AM_CFLAGS)
