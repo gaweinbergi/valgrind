@@ -2,13 +2,10 @@
 #include "tests/malloc.h"
 #include <stdlib.h>
 #include <stdio.h>
-#if defined(VGO_freebsd)
-#include <malloc_np.h>
-#endif
 
 int main(void)
 {
-#  if !defined(VGO_darwin)
+#  if !defined(VGO_darwin) && !defined(VGO_solaris)
    // Because Memcheck marks any slop as inaccessible, it doesn't round up
    // sizes for malloc_usable_size().
    int* x = malloc(99);

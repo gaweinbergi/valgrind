@@ -19,10 +19,12 @@ extern char **environ;
 
 void test_allexec (char *exec)
 {
+   // Some OSes require a non-NULL argv, those that don't will still work
    char *nullargv = NULL;
 
-   FORKEXECWAIT (execlp(exec, exec, NULL));
-   FORKEXECWAIT (execlp(exec, exec, "constant_arg1", "constant_arg2", NULL));
+   FORKEXECWAIT (execlp(exec, exec, (char *)NULL));
+   FORKEXECWAIT (execlp(exec, exec, "constant_arg1", "constant_arg2",
+			(char *)NULL));
    FORKEXECWAIT (execve(exec, &nullargv, environ));
 }
 

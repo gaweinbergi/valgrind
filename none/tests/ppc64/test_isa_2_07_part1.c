@@ -301,8 +301,31 @@ static test_t tests_ildq_ops_two_i16[] = {
     { NULL,                   NULL,          },
 };
 
-
+#ifdef HAS_ISA_2_07
 Word_t * mem_resv;
+static void test_stbcx(void)
+{
+  /* Have to do the lbarx to the memory address to create the reservation
+   * or the store will not occur.
+   */
+  __asm__ __volatile__ ("lbarx  %0, %1, %2" : :"r" (r14), "r" (r16),"r" (r17));
+  r14 = (HWord_t) 0xABEFCD0145236789ULL;
+  r15 = (HWord_t) 0x1155337744226688ULL;
+  __asm__ __volatile__ ("stbcx. %0, %1, %2" : :"r" (r14), "r" (r16),"r" (r17));
+}
+
+static void test_sthcx(void)
+{
+  /* Have to do the lharx to the memory address to create the reservation
+   * or the store will not occur.
+   */
+  __asm__ __volatile__ ("lharx  %0, %1, %2" : :"r" (r14), "r" (r16),"r" (r17));
+  r14 = (HWord_t) 0xABEFCD0145236789ULL;
+  r15 = (HWord_t) 0x1155337744226688ULL;
+  __asm__ __volatile__ ("sthcx. %0, %1, %2" : :"r" (r14), "r" (r16),"r" (r17));
+}
+#endif
+
 static void test_stqcx(void)
 {
   /* Have to do the lqarx to the memory address to create the reservation
@@ -315,16 +338,34 @@ static void test_stqcx(void)
 }
 
 static test_t tests_stq_ops_three[] = {
+#ifdef HAS_ISA_2_07
+    { &test_stbcx           , "stbcx.", },
+    { &test_sthcx           , "sthcx.", },
+#endif
     { &test_stqcx           , "stqcx.", },
     { NULL,                   NULL,           },
 };
 
+#ifdef HAS_ISA_2_07
+static void test_lbarx(void)
+{
+  __asm__ __volatile__ ("lbarx  %0, %1, %2, 0" : :"r" (r14), "r" (r16),"r" (r17));
+}
+static void test_lharx(void)
+{
+  __asm__ __volatile__ ("lharx  %0, %1, %2, 0" : :"r" (r14), "r" (r16),"r" (r17));
+}
+#endif
 static void test_lqarx(void)
 {
   __asm__ __volatile__ ("lqarx  %0, %1, %2, 0" : :"r" (r14), "r" (r16),"r" (r17));
 }
 
 static test_t tests_ldq_ops_three[] = {
+#ifdef HAS_ISA_2_07
+    { &test_lbarx           , "lbarx", },
+    { &test_lharx           , "lharx", },
+#endif
     { &test_lqarx           , "lqarx", },
     { NULL,                   NULL,           },
 };
@@ -833,7 +874,8 @@ static int verbose = 0;
 static int arg_list_size = 0;
 static unsigned long long * vdargs = NULL;
 static unsigned long long * vdargs_x = NULL;
-#define NB_VDARGS 4
+#define NB_VDARGS 9
+#define NB_VDARGS_X 4
 
 static void build_vdargs_table (void)
 {
@@ -843,8 +885,13 @@ static void build_vdargs_table (void)
    vdargs[1] = 0x090A0B0C0E0D0E0FULL;
    vdargs[2] = 0xF1F2F3F4F5F6F7F8ULL;
    vdargs[3] = 0xF9FAFBFCFEFDFEFFULL;
+   vdargs[4] = 0x00007FFFFFFFFFFFULL;
+   vdargs[5] = 0xFFFF000000000000ULL;
+   vdargs[6] = 0x0000800000000000ULL;
+   vdargs[7] = 0x0000000000000000ULL;
+   vdargs[8] = 0xFFFFFFFFFFFFFFFFULL;
 
-   vdargs_x = memalign16(NB_VDARGS * sizeof(unsigned long long));
+   vdargs_x = memalign16(NB_VDARGS_X * sizeof(unsigned long long));
    vdargs_x[0] = 0x000000007c118a2bULL;
    vdargs_x[1] = 0x00000000f1112345ULL;
    vdargs_x[2] = 0x01F2F3F4F5F6F7F8ULL;
@@ -881,7 +928,8 @@ static unsigned long long vbcd_args[] __attribute__ ((aligned (16))) = {
    0x0ULL,                // Invalid BCD zero (no sign code)
    0x0ULL
 };
-#define NUM_VBCD_VALS (sizeof vbcd_args/sizeof vbcd_args[0])
+//#define NUM_VBCD_VALS (sizeof vbcd_args/sizeof vbcd_args[0])
+#define NUM_VBCD_VALS 8 
 
 static void build_vargs_table (void)
 {
@@ -1247,12 +1295,12 @@ static void test_av_dint_two_args (const char* name, test_func_t func,
    else
       is_vpmsumd = 0;
 
-   for (i = 0; i < NB_VDARGS; i+=2) {
+   for (i = 0; i < NB_VDARGS - 1; i+=2) {
       if (isLE && family == PPC_ALTIVECQ)
          vec_inA = (vector unsigned long long){ vdargs[i+1], vdargs[i] };
       else
          vec_inA = (vector unsigned long long){ vdargs[i], vdargs[i+1] };
-      for (j = 0; j < NB_VDARGS; j+=2) {
+      for (j = 0; j < NB_VDARGS - 1; j+=2) {
          if (isLE && family == PPC_ALTIVECQ)
             vec_inB = (vector unsigned long long){ vdargs[j+1], vdargs[j] };
          else
@@ -1312,7 +1360,7 @@ static void test_av_dint_one_arg (const char* name, test_func_t func,
    unsigned long long * dst;
    int i;
 
-   for (i = 0; i < NB_VDARGS; i+=2) {
+   for (i = 0; i < NB_VDARGS - 1; i+=2) {
       vec_inB = (vector unsigned long long){ vdargs[i], vdargs[i+1] };
       vec_out = (vector unsigned long long){ 0,0 };
 
@@ -1331,7 +1379,7 @@ static void test_av_dint_one_arg_SHA (const char* name, test_func_t func,
    unsigned long long * dst;
    int i, st, six;
 
-   for (i = 0; i < NB_VDARGS; i+=2) {
+   for (i = 0; i < NB_VDARGS - 1; i+=2) {
       vec_inA = (vector unsigned long long){ vdargs[i], vdargs[i+1] };
       vec_out = (vector unsigned long long){ 0,0 };
 
@@ -1355,14 +1403,14 @@ static void test_av_bcd (const char* name, test_func_t func,
    unsigned long long * dst;
    int i, j;
 
-   for (i = 0; i < NUM_VBCD_VALS; i+=2) {
+   for (i = 0; i < NUM_VBCD_VALS - 1; i+=2) {
       if (isLE)
-         vec_inA = (vector unsigned long long){ vbcd_args[i+1], vbcd_args[i] };
+         vec_inA = (vector unsigned long long){ vbcd_args[i+1], vbcd_args[i]};
       else
          vec_inA = (vector unsigned long long){ vbcd_args[i], vbcd_args[i+1] };
-      for (j = 0; j < NUM_VBCD_VALS; j+=2) {
+      for (j = 0; j < NUM_VBCD_VALS - 1; j+=2) {
          if (isLE)
-            vec_inB = (vector unsigned long long){ vbcd_args[j+1], vbcd_args[j] };
+            vec_inB = (vector unsigned long long){ vbcd_args[j+1] , vbcd_args[j] };
          else
             vec_inB = (vector unsigned long long){ vbcd_args[j], vbcd_args[j+1] };
          vec_out = (vector unsigned long long){ 0, 0 };
@@ -1390,9 +1438,9 @@ static void test_av_dint_to_int_two_args (const char* name, test_func_t func,
 
    unsigned int * dst_int;
    int i,j;
-   for (i = 0; i < NB_VDARGS; i+=2) {
+   for (i = 0; i < NB_VDARGS_X - 1; i+=2) {
       vec_inA = (vector unsigned long long){ vdargs_x[i], vdargs_x[i+1] };
-      for (j = 0; j < NB_VDARGS; j+=2) {
+      for (j = 0; j < NB_VDARGS_X - 1; j+=2) {
          vec_inB = (vector unsigned long long){ vdargs_x[j], vdargs_x[j+1] };
          vec_out = (vector unsigned long long){ 0,0 };
 
@@ -1630,17 +1678,17 @@ static void test_av_dint_three_args (const char* name, test_func_t func,
                                     0xf000000000000000ULL, 0xf000000000000000ULL,
                                     0xf000000000000000ULL, 0xf000000000000001ULL
    };
-   for (i = 0; i < NB_VDARGS; i+=2) {
+   for (i = 0; i < NB_VDARGS - 1; i+=2) {
       if (isLE)
          vec_inA = (vector unsigned long long){ vdargs[i+1], vdargs[i] };
       else
          vec_inA = (vector unsigned long long){ vdargs[i], vdargs[i+1] };
-      for (j = 0; j < NB_VDARGS; j+=2) {
+      for (j = 0; j < NB_VDARGS - 1; j+=2) {
          if (isLE)
             vec_inB = (vector unsigned long long){ vdargs[j+1], vdargs[j] };
          else
             vec_inB = (vector unsigned long long){ vdargs[j], vdargs[j+1] };
-         for (k = 0; k < 4; k+=2) {
+         for (k = 0; k < 4 - 1; k+=2) {
             if (family == PPC_ALTIVECQ) {
                if (isLE)
                   vec_inC = (vector unsigned long long){ cin_vals[k+1], cin_vals[k] };

@@ -268,7 +268,7 @@ print_multiple_stores(void)
 static void
 print_store_stats(void)
 {
-    VG_(umsg)("Number of stores not made persistent: %lu\n", VG_(OSetGen_Size)
+    VG_(umsg)("Number of stores not made persistent: %u\n", VG_(OSetGen_Size)
             (pmem.pmem_stores));
 
     if (VG_(OSetGen_Size)(pmem.pmem_stores) != 0) {
@@ -356,13 +356,8 @@ print_redundant_flush_error(UWord limit)
 static Bool
 is_ip_memset_memcpy(Addr ip)
 {
-#define BUF_LEN   4096
-
-    static HChar buf[BUF_LEN];
-
     InlIPCursor *iipc = VG_(new_IIPC)(ip);
-    buf[BUF_LEN - 1] = '\0';
-    VG_(describe_IP)(ip, buf, BUF_LEN, iipc);
+    const HChar *buf = VG_(describe_IP)(ip,  iipc);
     Bool present = (VG_(strstr)(buf, "memcpy") != NULL);
     present |= (VG_(strstr)(buf, "memset") != NULL);
     VG_(delete_IIPC)(iipc);
@@ -1397,9 +1392,9 @@ static Bool handle_gdb_monitor_command(ThreadId tid, HChar *req)
 static IRSB*
 pmc_instrument(VgCallbackClosure *closure,
         IRSB *bb,
-        VexGuestLayout *layout,
-        VexGuestExtents *vge,
-        VexArchInfo *archinfo_host,
+        const VexGuestLayout *layout,
+        const VexGuestExtents *vge,
+        const VexArchInfo *archinfo_host,
         IRType gWordTy, IRType hWordTy)
 {
     Int i;
@@ -1445,7 +1440,6 @@ pmc_instrument(VgCallbackClosure *closure,
                 break;
 
             case Ist_Flush: {
-                addStmtToIRSB(sbOut, st);
                 if (LIKELY(pmem.automatic_isa_rec)) {
                     IRExpr *addr = st->Ist.Flush.addr;
                     IRType type = typeOfIRExpr(tyenv, addr);
@@ -1455,11 +1449,11 @@ pmc_instrument(VgCallbackClosure *closure,
                     if (st->Ist.Flush.fk == Ifk_flush)
                         add_simple_event(sbOut, do_fence, "do_fence");
                 }
+                addStmtToIRSB(sbOut, st);
                 break;
             }
 
             case Ist_MBE: {
-                addStmtToIRSB(sbOut, st);
                 if (LIKELY(pmem.automatic_isa_rec)) {
                     switch (st->Ist.MBE.event) {
                         case Imbe_Fence:
@@ -1473,27 +1467,28 @@ pmc_instrument(VgCallbackClosure *closure,
                             break;
                     }
                 }
+                addStmtToIRSB(sbOut, st);
                 break;
             }
 
             case Ist_Store: {
-                addStmtToIRSB(sbOut, st);
                 IRExpr *data = st->Ist.Store.data;
                 IRType type = typeOfIRExpr(tyenv, data);
                 tl_assert(type != Ity_INVALID);
                 add_event_dw(sbOut, st->Ist.Store.addr, sizeofIRType(type),
                         data);
+                addStmtToIRSB(sbOut, st);
                 break;
             }
 
             case Ist_StoreG: {
-                addStmtToIRSB(sbOut, st);
                 IRStoreG *sg = st->Ist.StoreG.details;
                 IRExpr *data = sg->data;
                 IRType type = typeOfIRExpr(tyenv, data);
                 tl_assert(type != Ity_INVALID);
                 add_event_dw_guarded(sbOut, sg->addr, sizeofIRType(type),
                         sg->guard, data);
+                addStmtToIRSB(sbOut, st);
                 break;
             }
 
@@ -1565,13 +1560,13 @@ pmc_instrument(VgCallbackClosure *closure,
             }
 
             case Ist_LLSC: {
-                addStmtToIRSB(sbOut, st);
                 IRType dataTy;
                 if (st->Ist.LLSC.storedata != NULL) {
                     dataTy = typeOfIRExpr(tyenv, st->Ist.LLSC.storedata);
                     add_event_dw(sbOut, st->Ist.LLSC.addr, sizeofIRType
                             (dataTy), st->Ist.LLSC.storedata);
                 }
+                addStmtToIRSB(sbOut, st);
                 break;
             }
 

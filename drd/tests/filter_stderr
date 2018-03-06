@@ -6,6 +6,13 @@ sed -e "s:_pthread_start (in /usr/lib/libSystem.B.dylib):(within libpthread-?.?.
 
 $dir/../../tests/filter_stderr_basic |
 
+# Perform Solaris-specific filtering.
+if $dir/../../tests/os_test solaris; then
+   perl -p $dir/filter_stderr_solaris
+else
+   cat
+fi |
+
 # Remove "drd, ..." line and the following copyright line.
 # Remove line numbers referring to drd's source code.
 # Remove libpthread's version number.
@@ -24,6 +31,7 @@ sed \
 -e "s/\([A-Za-z_]*\) (clone.S:[0-9]*)/\1 (in \/...libc...)/" \
 -e "s/[A-Za-z_]* (pthread_create.c:[0-9]*)/(within libpthread-?.?.so)/" \
 -e "s/[A-Za-z_]* (in [^ ]*libpthread-[0-9.]*\.so)/(within libpthread-?.?.so)/" \
+-e "s/??? (in [^ ]*libthr\.so\.[0-9[0-9]*)/(within libpthread-?.?.so)/" \
 -e "s:(within /lib[0-9]*/ld-[0-9.]*\.so):(within ld-?.?.so):" \
 -e "s/was held during [0-9][0-9]*/was held during .../" \
 -e "s: BSS section of [^<]*/: BSS section of :g" \

@@ -203,24 +203,24 @@ int main(int argc, char** argv)
   srand(time(NULL));
 
   buffer_init(&b);
-fprintf(stderr, "Creating producers...\n");
+
   for (i = 0; i < THREADS; ++i)
   {
     thread_arg[i] = i;
     pthread_create(producers + i, NULL,
                    (void * (*)(void *)) producer, &thread_arg[i]);
   }
-fprintf(stderr, "Creating consumers...\n");
+
   for (i = 0; i < THREADS; ++i)
     pthread_create(consumers + i, NULL,
                    (void * (*)(void *)) consumer, &thread_arg[i]);
-fprintf(stderr, "Joining...\n");
+
   for (i = 0; i < THREADS; ++i)
   {
     pthread_join(producers[i], NULL);
     pthread_join(consumers[i], NULL);
   }
-fprintf(stderr, "Destroying buffer.\n");
+
   buffer_destroy(&b);
 
   return 0;

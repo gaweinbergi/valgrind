@@ -6,7 +6,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2011-2013 Philippe Waroquiers
+   Copyright (C) 2011-2015 Philippe Waroquiers
 
    This program is free software; you can redistribute it and/or
    modify it under the terms of the GNU General Public License as
@@ -290,7 +290,7 @@ void *invoke_gdbserver_in_valgrind(void *v_pid)
                last invoke. */
             if (invoked_written != written_by_vgdb_before_sleep) {
                if (invoker_invoke_gdbserver(pid)) {
-                  /* If invoke succesful, no need to invoke again
+                  /* If invoke successful, no need to invoke again
                      for the same value of written_by_vgdb_before_sleep. */
                   invoked_written = written_by_vgdb_before_sleep;
                }
@@ -381,7 +381,7 @@ int read_buf (int fd, char* buf, const char* desc)
    valgrind process that there is new data.
    Returns True if write is ok, False if there was a problem. */
 static
-Bool write_buf(int fd, char* buf, int size, const char* desc, Bool notify)
+Bool write_buf(int fd, const char* buf, int size, const char* desc, Bool notify)
 {
    int nrwritten;
    int nrw;
@@ -517,10 +517,12 @@ void prepare_fifos_and_shared_mem(int pid)
    user = getenv("LOGNAME");
    if (user == NULL) user = getenv("USER");
    if (user == NULL) user = "???";
+   if (strchr(user, '/')) user = "???";
 
    host = getenv("HOST");
    if (host == NULL) host = getenv("HOSTNAME");
    if (host == NULL) host = "???";
+   if (strchr(host, '/')) host = "???";
 
    len = strlen(vgdb_prefix) + strlen(user) + strlen(host) + 40;
    from_gdb_to_pid = vmalloc (len);
@@ -584,10 +586,9 @@ readchar (int fd)
 }
 
 /* Read a packet from fromfd, with error checking,
-   and store it in BUF.  
-   Returns length of packet, or -1 if error or -2 if EOF.
-   Writes ack on ackfd */
-
+   and store it in BUF.
+   If checksum incorrect, writes a - on ackfd.
+   Returns length of packet, or -1 if error or -2 if EOF. */
 static int
 getpkt (char *buf, int fromfd, int ackfd)
 {
@@ -645,11 +646,7 @@ getpkt (char *buf, int fromfd, int ackfd)
         add_written(1);
   }
 
-  DEBUG(2, "getpkt (\"%s\");  [sending ack] \n", buf);
-  if (write (ackfd, "+", 1) != 1)
-     ERROR(0, "error when writing + (ack)\n");
-  else
-     add_written(1);
+  DEBUG(2, "getpkt (\"%s\");  [no ack] \n", buf);
   return bp - buf;
 }
 
@@ -685,8 +682,10 @@ void received_signal (int signum)
       sigpipe++;
    } else if (signum == SIGALRM) {
       sigalrm++;
-#if defined(VGPV_arm_linux_android) || defined(VGPV_x86_linux_android) \
-    || defined(VGPV_mips32_linux_android)
+#if defined(VGPV_arm_linux_android) \
+    || defined(VGPV_x86_linux_android) \
+    || defined(VGPV_mips32_linux_android) \
+    || defined(VGPV_arm64_linux_android)
       /* Android has no pthread_cancel. As it also does not have
          an invoker implementation, there is no need for cleanup action.
          So, we just do nothing. */
@@ -747,6 +746,11 @@ void install_handlers(void)
       to cleanup.  */
    if (sigaction (SIGALRM, &action, &oldaction) != 0)
       XERROR (errno, "vgdb error sigaction SIGALRM\n");
+
+   /* unmask all signals, in case the process that launched vgdb
+      masked some. */
+   if (sigprocmask (SIG_SETMASK, &action.sa_mask, NULL) != 0)
+      XERROR (errno, "vgdb error sigprocmask");
 }
 
 /* close the FIFOs provided connections, terminate the invoker thread.  */
@@ -971,6 +975,17 @@ void standalone_send_commands(int pid,
    }
    from_pid = open_fifo(to_gdb_from_pid, O_RDONLY, 
                         "read cmd result from pid");
+
+   /* Enable no ack mode. */
+   write_buf(to_pid, "$QStartNoAckMode#b0", 19, "write start no ack mode",
+             /* notify */ True);
+   buflen = getpkt(buf, from_pid, to_pid);
+   if (buflen != 2 || strcmp(buf, "OK") != 0) {
+      if (buflen != 2)
+         ERROR (0, "no ack mode: unexpected buflen %d\n", buflen);
+      else
+         ERROR (0, "no ack mode: unexpected packet %s\n", buf);
+   }
    
    for (nc = 0; nc <= last_command; nc++) {
       fprintf (stderr, "sending command %s to pid %d\n", commands[nc], pid);
@@ -1053,37 +1068,44 @@ void standalone_send_commands(int pid,
 }
 
 /* report to user the existence of a vgdb-able valgrind process 
-   with given pid */
+   with given pid.
+   Note: this function does not use XERROR if an error is encountered
+   while producing the command line for pid, as this is not critical
+   and at least on MacOS, reading cmdline is not available. */
 static
 void report_pid (int pid, Bool on_stdout)
 {
-   char cmdline_file[100];
-   char cmdline[1000];
-   int fd;
-   int i, sz;
+   char cmdline_file[50];   // large enough
+   int fd, i;
+   FILE *out = on_stdout ? stdout : stderr;
+
+   fprintf(out, "use --pid=%d for ", pid);
 
    sprintf(cmdline_file, "/proc/%d/cmdline", pid);
    fd = open (cmdline_file, O_RDONLY);
    if (fd == -1) {
       DEBUG(1, "error opening cmdline file %s %s\n", 
             cmdline_file, strerror(errno));
-      sprintf(cmdline, "(could not open process command line)");
+      fprintf(out, "(could not open process command line)\n");
    } else {
-      sz = read(fd, cmdline, 1000);
-      for (i = 0; i < sz; i++)
-         if (cmdline[i] == 0)
-            cmdline[i] = ' ';
-      if (sz >= 0)
+      char cmdline[100];
+      ssize_t sz;
+      while ((sz = read(fd, cmdline, sizeof cmdline - 1)) != 0) {
+         for (i = 0; i < sz; i++)
+            if (cmdline[i] == 0)
+               cmdline[i] = ' ';
          cmdline[sz] = 0;
-      else {
+         fprintf(out, "%s", cmdline);
+      }
+      if (sz == -1) {
          DEBUG(1, "error reading cmdline file %s %s\n", 
                cmdline_file, strerror(errno));
-         sprintf(cmdline, "(could not read process command line)");
+         fprintf(out, "(error reading process command line)");
       }
+      fprintf(out, "\n");
       close (fd);
    }  
-   fprintf((on_stdout ? stdout : stderr), "use --pid=%d for %s\n", pid, cmdline);
-   fflush((on_stdout ? stdout : stderr));
+   fflush(out);
 }
 
 static

@@ -1,6 +1,6 @@
 
 /*--------------------------------------------------------------------*/
-/*--- FreeBSD-specific syscalls stuff.          priv_syswrap-freebsd.h ---*/
+/*--- FreeBSD-specific syscalls stuff.      priv_syswrap-freebsd.h ---*/
 /*--------------------------------------------------------------------*/
 
 /*

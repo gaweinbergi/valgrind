@@ -8,7 +8,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2013 Julian Seward 
+   Copyright (C) 2000-2015 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -38,7 +38,6 @@
 #include "pub_core_libcprint.h"
 #include "pub_core_mallocfree.h"
 #include "pub_core_options.h"
-#include "pub_core_libcsetjmp.h"    // to keep _threadstate.h happy
 #include "pub_core_threadstate.h"   // For VG_INVALID_THREADID
 #include "pub_core_gdbserver.h"
 #include "pub_core_transtab.h"
@@ -626,9 +625,9 @@ void VG_(print_all_arena_stats) ( void )
    for (i = 0; i < VG_N_ARENAS; i++) {
       Arena* a = arenaId_to_ArenaP(i);
       VG_(message)(Vg_DebugMsg,
-                   "%8s: %8lu/%8lu  max/curr mmap'd, "
+                   "%-8s: %'13lu/%'13lu max/curr mmap'd, "
                    "%llu/%llu unsplit/split sb unmmap'd,  "
-                   "%8lu/%8lu max/curr,  "
+                   "%'13lu/%'13lu max/curr,  "
                    "%10llu/%10llu totalloc-blocks/bytes,"
                    "  %10llu searches %lu rzB\n",
                    a->name,
@@ -759,7 +758,7 @@ void VG_(out_of_memory_NORETURN) ( const HChar* who, SizeT szB )
       "\n"
       "    Valgrind's memory management: out of memory:\n"
       "       %s's request for %llu bytes failed.\n"
-      "       %llu bytes have already been allocated.\n"
+      "       %'13llu bytes have already been mmap-ed ANONYMOUS.\n"
       "    Valgrind cannot continue.  Sorry.\n\n"
       "    There are several possible reasons for this.\n"
       "    - You have some kind of memory limit in place.  Look at the\n"
@@ -853,15 +852,11 @@ Superblock* newSuperblock ( Arena* a, SizeT cszB )
 
    if (a->clientmem) {
       // client allocation -- return 0 to client if it fails
-      sres = VG_(am_mmap_anon_float_client)
+      sres = VG_(am_mmap_client_heap)
          ( cszB, VKI_PROT_READ|VKI_PROT_WRITE|VKI_PROT_EXEC );
       if (sr_isError(sres))
          return 0;
-      sb = (Superblock*)(AddrH)sr_Res(sres);
-      // Mark this segment as containing client heap.  The leak
-      // checker needs to be able to identify such segments so as not
-      // to use them as sources of roots during leak checks.
-      VG_(am_set_segment_isCH_if_SkAnonC)( VG_(am_find_nsegment)( (Addr)sb ) );
+      sb = (Superblock*)(Addr)sr_Res(sres);
    } else {
       // non-client allocation -- abort if it fails
       sres = VG_(am_mmap_anon_float_valgrind)( cszB );
@@ -870,7 +865,7 @@ Superblock* newSuperblock ( Arena* a, SizeT cszB )
          /* NOTREACHED */
          sb = NULL; /* keep gcc happy */
       } else {
-         sb = (Superblock*)(AddrH)sr_Res(sres);
+         sb = (Superblock*)(Addr)sr_Res(sres);
       }
    }
    vg_assert(NULL != sb);
@@ -882,7 +877,7 @@ Superblock* newSuperblock ( Arena* a, SizeT cszB )
    if (a->stats__bytes_mmaped > a->stats__bytes_mmaped_max)
       a->stats__bytes_mmaped_max = a->stats__bytes_mmaped;
    VG_(debugLog)(1, "mallocfree",
-                    "newSuperblock at %p (pszB %7ld) %s owner %s/%s\n", 
+                    "newSuperblock at %p (pszB %7lu) %s owner %s/%s\n", 
                     sb, sb->n_payload_bytes,
                     (unsplittable ? "unsplittable" : ""),
                     a->clientmem ? "CLIENT" : "VALGRIND", a->name );
@@ -900,7 +895,7 @@ void reclaimSuperblock ( Arena* a, Superblock* sb)
    UInt   i, j;
 
    VG_(debugLog)(1, "mallocfree",
-                    "reclaimSuperblock at %p (pszB %7ld) %s owner %s/%s\n", 
+                    "reclaimSuperblock at %p (pszB %7lu) %s owner %s/%s\n", 
                     sb, sb->n_payload_bytes,
                     (sb->unsplittable ? "unsplittable" : ""),
                     a->clientmem ? "CLIENT" : "VALGRIND", a->name );
@@ -1016,66 +1011,125 @@ Superblock* maybe_findSb ( Arena* a, Addr ad )
 // payload size, not block size.
 
 // Convert a payload size in bytes to a freelist number.
-static
+static __attribute__((noinline))
+UInt pszB_to_listNo_SLOW ( SizeT pszB__divided_by__VG_MIN_MALLOC_SZB )
+{
+   SizeT n = pszB__divided_by__VG_MIN_MALLOC_SZB;
+
+   if (n < 299) {
+      if (n < 114) {
+         if (n < 85) {
+            if (n < 74) {
+               /* -- Exponential slope up, factor 1.05 -- */
+               if (n < 67) return 64;
+               if (n < 70) return 65;
+               /* else */  return 66;
+            } else {
+               if (n < 77) return 67;
+               if (n < 81) return 68;
+               /* else */  return 69;
+            }
+         } else {
+            if (n < 99) {
+               if (n < 90) return 70;
+               if (n < 94) return 71;
+               /* else */  return 72;
+            } else {
+               if (n < 104) return 73;
+               if (n < 109) return 74;
+               /* else */   return 75;
+            }
+         }
+      } else {
+         if (n < 169) {
+            if (n < 133) {
+               if (n < 120) return 76;
+               if (n < 126) return 77;
+               /* else */   return 78;
+            } else {
+               if (n < 139) return 79;
+               /* -- Exponential slope up, factor 1.10 -- */
+               if (n < 153) return 80;
+               /* else */   return 81;
+            }
+         } else {
+            if (n < 224) {
+               if (n < 185) return 82;
+               if (n < 204) return 83;
+               /* else */   return 84;
+            } else {
+               if (n < 247) return 85;
+               if (n < 272) return 86;
+               /* else */   return 87;
+            }
+         }
+      }
+   } else {
+      if (n < 1331) {
+         if (n < 530) {
+            if (n < 398) {
+               if (n < 329) return 88;
+               if (n < 362) return 89;
+               /* else */   return 90;
+            } else {
+               if (n < 438) return 91;
+               if (n < 482) return 92;
+               /* else */   return 93;
+            }
+         } else {
+            if (n < 770) {
+               if (n < 583) return 94;
+               if (n < 641) return 95;
+               /* -- Exponential slope up, factor 1.20 -- */
+               /* else */   return 96;
+            } else {
+               if (n < 924) return 97;
+               if (n < 1109) return 98;
+               /* else */    return 99;
+            }
+         }
+      } else {
+         if (n < 3974) {
+            if (n < 2300) {
+               if (n < 1597) return 100;
+               if (n < 1916) return 101;
+               return 102;
+            } else {
+               if (n < 2760) return 103;
+               if (n < 3312) return 104;
+               /* else */    return 105;
+            }
+         } else {
+            if (n < 6868) {
+               if (n < 4769) return 106;
+               if (n < 5723) return 107;
+               /* else */    return 108;
+            } else {
+               if (n < 8241) return 109;
+               if (n < 9890) return 110;
+               /* else */    return 111;
+            }
+         }
+      }
+   }
+   /*NOTREACHED*/
+   vg_assert(0);
+}
+
+static inline
 UInt pszB_to_listNo ( SizeT pszB )
 {
    SizeT n = pszB / VG_MIN_MALLOC_SZB;
-   vg_assert(0 == pszB % VG_MIN_MALLOC_SZB);
+   vg_assert(0 == (pszB % VG_MIN_MALLOC_SZB));
 
    // The first 64 lists hold blocks of size VG_MIN_MALLOC_SZB * list_num.
-   // The final 48 hold bigger blocks.
-   if (n < 64)   return (UInt)n;
-   /* Exponential slope up, factor 1.05 */
-   if (n < 67) return 64;
-   if (n < 70) return 65;
-   if (n < 74) return 66;
-   if (n < 77) return 67;
-   if (n < 81) return 68;
-   if (n < 85) return 69;
-   if (n < 90) return 70;
-   if (n < 94) return 71;
-   if (n < 99) return 72;
-   if (n < 104) return 73;
-   if (n < 109) return 74;
-   if (n < 114) return 75;
-   if (n < 120) return 76;
-   if (n < 126) return 77;
-   if (n < 133) return 78;
-   if (n < 139) return 79;
-   /* Exponential slope up, factor 1.10 */
-   if (n < 153) return 80;
-   if (n < 169) return 81;
-   if (n < 185) return 82;
-   if (n < 204) return 83;
-   if (n < 224) return 84;
-   if (n < 247) return 85;
-   if (n < 272) return 86;
-   if (n < 299) return 87;
-   if (n < 329) return 88;
-   if (n < 362) return 89;
-   if (n < 398) return 90;
-   if (n < 438) return 91;
-   if (n < 482) return 92;
-   if (n < 530) return 93;
-   if (n < 583) return 94;
-   if (n < 641) return 95;
-   /* Exponential slope up, factor 1.20 */
-   if (n < 770) return 96;
-   if (n < 924) return 97;
-   if (n < 1109) return 98;
-   if (n < 1331) return 99;
-   if (n < 1597) return 100;
-   if (n < 1916) return 101;
-   if (n < 2300) return 102;
-   if (n < 2760) return 103;
-   if (n < 3312) return 104;
-   if (n < 3974) return 105;
-   if (n < 4769) return 106;
-   if (n < 5723) return 107;
-   if (n < 6868) return 108;
-   if (n < 8241) return 109;
-   if (n < 9890) return 110;
-   return 111;
+   // The final 48 hold bigger blocks and are dealt with by the _SLOW
+   // case.
+   if (LIKELY(n < 64)) {
+      return (UInt)n;
+   } else {
+      return pszB_to_listNo_SLOW(n);
+   }
 }
 
 // What is the minimum payload size for a given list?
@@ -1225,13 +1279,13 @@ void ppSuperblocks ( Arena* a )
       Superblock * sb = a->sblocks[j];
 
       VG_(printf)( "\n" );
-      VG_(printf)( "superblock %d at %p %s, sb->n_pl_bs = %lu\n",
+      VG_(printf)( "superblock %u at %p %s, sb->n_pl_bs = %lu\n",
                    blockno++, sb, (sb->unsplittable ? "unsplittable" : ""),
                    sb->n_payload_bytes);
       for (i = 0; i < sb->n_payload_bytes; i += b_bszB) {
          Block* b = (Block*)&sb->payload_bytes[i];
          b_bszB   = get_bszB(b);
-         VG_(printf)( "   block at %d, bszB %lu: ", i, b_bszB );
+         VG_(printf)( "   block at %u, bszB %lu: ", i, b_bszB );
          VG_(printf)( "%s, ", is_inuse_block(b) ? "inuse" : "free");
          VG_(printf)( "%s\n", blockSane(a, b) ? "ok" : "BAD" );
       }
@@ -1281,13 +1335,13 @@ static void sanity_check_malloc_arena ( ArenaId aid )
          b     = (Block*)&sb->payload_bytes[i];
          b_bszB = get_bszB_as_is(b);
          if (!blockSane(a, b)) {
-            VG_(printf)("sanity_check_malloc_arena: sb %p, block %d "
+            VG_(printf)("sanity_check_malloc_arena: sb %p, block %u "
                         "(bszB %lu):  BAD\n", sb, i, b_bszB );
             BOMB;
          }
          thisFree = !is_inuse_block(b);
          if (thisFree && lastWasFree) {
-            VG_(printf)("sanity_check_malloc_arena: sb %p, block %d "
+            VG_(printf)("sanity_check_malloc_arena: sb %p, block %u "
                         "(bszB %lu): UNMERGED FREES\n", sb, i, b_bszB );
             BOMB;
          }
@@ -1328,7 +1382,7 @@ static void sanity_check_malloc_arena ( ArenaId aid )
          b_prev = b;
          b = get_next_b(b);
          if (get_prev_b(b) != b_prev) {
-            VG_(printf)( "sanity_check_malloc_arena: list %d at %p: "
+            VG_(printf)( "sanity_check_malloc_arena: list %u at %p: "
                          "BAD LINKAGE\n",
                          listno, b );
             BOMB;
@@ -1336,7 +1390,7 @@ static void sanity_check_malloc_arena ( ArenaId aid )
          b_pszB = get_pszB(a, b);
          if (b_pszB < list_min_pszB || b_pszB > list_max_pszB) {
             VG_(printf)(
-               "sanity_check_malloc_arena: list %d at %p: "
+               "sanity_check_malloc_arena: list %u at %p: "
                "WRONG CHAIN SIZE %luB (%luB, %luB)\n",
                listno, b, b_pszB, list_min_pszB, list_max_pszB );
             BOMB;
@@ -1358,8 +1412,8 @@ static void sanity_check_malloc_arena ( ArenaId aid )
 
    if (VG_(clo_verbosity) > 2) 
       VG_(message)(Vg_DebugMsg,
-                   "%8s: %2d sbs, %5d bs, %2d/%-2d free bs, "
-                   "%7ld mmap, %7ld loan\n",
+                   "%-8s: %2u sbs, %5u bs, %2u/%-2u free bs, "
+                   "%7lu mmap, %7lu loan\n",
                    a->name,
                    superblockctr,
                    blockctr_sb, blockctr_sb_free, blockctr_li, 
@@ -1409,9 +1463,9 @@ static void cc_analyse_alloc_arena ( ArenaId aid )
    sanity_check_malloc_arena(aid);
 
    VG_(printf)(
-      "-------- Arena \"%s\": %lu/%lu max/curr mmap'd, "
+      "-------- Arena \"%s\": %'lu/%'lu max/curr mmap'd, "
       "%llu/%llu unsplit/split sb unmmap'd, "
-      "%lu/%lu max/curr on_loan %lu rzB --------\n",
+      "%'lu/%'lu max/curr on_loan %lu rzB --------\n",
       a->name, a->stats__bytes_mmaped_max, a->stats__bytes_mmaped,
       a->stats__nreclaim_unsplit, a->stats__nreclaim_split,
       a->stats__bytes_on_loan_max, a->stats__bytes_on_loan,
@@ -1427,13 +1481,13 @@ static void cc_analyse_alloc_arena ( ArenaId aid )
          if (!blockSane(a, b)) {
             VG_(printf)("sanity_check_malloc_arena: sb %p, block %ld "
                         "(bszB %lu):  BAD\n", sb, i, b_bszB );
-            tl_assert(0);
+            vg_assert(0);
          }
          thisFree = !is_inuse_block(b);
          if (thisFree && lastWasFree) {
             VG_(printf)("sanity_check_malloc_arena: sb %p, block %ld "
                         "(bszB %lu): UNMERGED FREES\n", sb, i, b_bszB );
-            tl_assert(0);
+            vg_assert(0);
          }
          lastWasFree = thisFree;
 
@@ -1448,35 +1502,35 @@ static void cc_analyse_alloc_arena ( ArenaId aid )
                      (Int)(!thisFree), 
                      (Int)bszB_to_pszB(a, b_bszB),
                      get_cc(b));
-         tl_assert(cc);
+         vg_assert(cc);
          for (k = 0; k < n_ccs; k++) {
-           tl_assert(anCCs[k].cc);
+           vg_assert(anCCs[k].cc);
             if (0 == VG_(strcmp)(cc, anCCs[k].cc))
                break;
          }
-         tl_assert(k >= 0 && k <= n_ccs);
+         vg_assert(k >= 0 && k <= n_ccs);
 
          if (k == n_ccs) {
-            tl_assert(n_ccs < N_AN_CCS-1);
+            vg_assert(n_ccs < N_AN_CCS-1);
             n_ccs++;
             anCCs[k].nBytes  = 0;
             anCCs[k].nBlocks = 0;
             anCCs[k].cc      = cc;
          }
 
-         tl_assert(k >= 0 && k < n_ccs && k < N_AN_CCS);
+         vg_assert(k >= 0 && k < n_ccs && k < N_AN_CCS);
          anCCs[k].nBytes += (ULong)bszB_to_pszB(a, b_bszB);
          anCCs[k].nBlocks++;
       }
       if (i > sb->n_payload_bytes) {
          VG_(printf)( "sanity_check_malloc_arena: sb %p: last block "
                       "overshoots end\n", sb);
-         tl_assert(0);
+         vg_assert(0);
       }
    }
 
    if (a->stats__perm_bytes_on_loan > 0) {
-      tl_assert(n_ccs < N_AN_CCS-1);
+      vg_assert(n_ccs < N_AN_CCS-1);
       anCCs[n_ccs].nBytes  = a->stats__perm_bytes_on_loan;
       anCCs[n_ccs].nBlocks = a->stats__perm_blocks;
       anCCs[n_ccs].cc      = "perm_malloc";
@@ -1763,13 +1817,13 @@ void* VG_(arena_malloc) ( ArenaId aid, const HChar* cc, SizeT req_pszB )
                                                    a->sblocks_size * 2);
          /* NOTREACHED */
       }
-      array = (Superblock**)(AddrH)sr_Res(sres);
+      array = (Superblock**)(Addr)sr_Res(sres);
       for (i = 0; i < a->sblocks_used; ++i) array[i] = a->sblocks[i];
 
       a->sblocks_size *= 2;
       a->sblocks = array;
       VG_(debugLog)(1, "mallocfree", 
-                       "sblock array for arena `%s' resized to %ld\n", 
+                       "sblock array for arena `%s' resized to %lu\n", 
                        a->name, a->sblocks_size);
    }
 
@@ -1897,7 +1951,7 @@ void deferred_reclaimSuperblock ( Arena* a, Superblock* sb)
                     a->clientmem ? "CLIENT" : "VALGRIND", a->name );
    } else
       VG_(debugLog)(1, "mallocfree",
-                    "deferred_reclaimSuperblock at %p (pszB %7ld) %s "
+                    "deferred_reclaimSuperblock at %p (pszB %7lu) %s "
                     "(prev %p) owner %s/%s\n",
                     sb, sb->n_payload_bytes,
                     (sb->unsplittable ? "unsplittable" : ""),
@@ -2044,7 +2098,7 @@ void VG_(arena_free) ( ArenaId aid, void* ptr )
    /* If this is one of V's areas, check carefully the block we're
       getting back.  This picks up simple block-end overruns. */
    if (aid != VG_AR_CLIENT)
-      vg_assert(blockSane(a, b));
+      vg_assert(is_inuse_block(b) && blockSane(a, b));
 
    b_bszB   = get_bszB(b);
    b_pszB   = bszB_to_pszB(a, b_bszB);
@@ -2118,8 +2172,8 @@ void VG_(arena_free) ( ArenaId aid, void* ptr )
 
 /*
    The idea for malloc_aligned() is to allocate a big block, base, and
-   then split it into two parts: frag, which is returned to the the
-   free pool, and align, which is the bit we're really after.  Here's
+   then split it into two parts: frag, which is returned to the free
+   pool, and align, which is the bit we're really after.  Here's
    a picture.  L and H denote the block lower and upper overheads, in
    bytes.  The details are gruesome.  Note it is slightly complicated
    because the initial request to generate base may return a bigger
@@ -2462,8 +2516,8 @@ void VG_(arena_realloc_shrink) ( ArenaId aid,
 
          sb->n_payload_bytes -= frag_bszB;
          VG_(debugLog)(1, "mallocfree",
-                       "shrink superblock %p to (pszB %7ld) "
-                       "owner %s/%s (munmap-ing %p %7ld)\n",
+                       "shrink superblock %p to (pszB %7lu) "
+                       "owner %s/%s (munmap-ing %p %7lu)\n",
                        sb, sb->n_payload_bytes,
                        a->clientmem ? "CLIENT" : "VALGRIND", a->name,
                        (void*) frag, frag_bszB);
@@ -2574,6 +2628,7 @@ void* VG_(arena_perm_malloc) ( ArenaId aid, SizeT size, Int align  )
 
 // All just wrappers to avoid exposing arenas to tools.
 
+// This function never returns NULL.
 void* VG_(malloc) ( const HChar* cc, SizeT nbytes )
 {
    return VG_(arena_malloc) ( VG_AR_CORE, cc, nbytes );
@@ -2594,17 +2649,16 @@ void* VG_(realloc) ( const HChar* cc, void* ptr, SizeT size )
    return VG_(arena_realloc) ( VG_AR_CORE, cc, ptr, size );
 }
 
+void VG_(realloc_shrink) ( void* ptr, SizeT size )
+{
+   VG_(arena_realloc_shrink) ( VG_AR_CORE, ptr, size );
+}
+
 HChar* VG_(strdup) ( const HChar* cc, const HChar* s )
 {
    return VG_(arena_strdup) ( VG_AR_CORE, cc, s ); 
 }
 
-// Useful for querying user blocks.           
-SizeT VG_(malloc_usable_size) ( void* p )                    
-{                                                            
-   return VG_(arena_malloc_usable_size)(VG_AR_CLIENT, p);
-}                                                            
-  
 void* VG_(perm_malloc) ( SizeT size, Int align  )
 {
    return VG_(arena_perm_malloc) ( VG_AR_CORE, size, align );

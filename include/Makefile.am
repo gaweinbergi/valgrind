@@ -14,6 +14,7 @@ nobase_pkginclude_HEADERS = \
 	pub_tool_errormgr.h 		\
 	pub_tool_execontext.h 		\
 	pub_tool_gdbserver.h 		\
+	pub_tool_guest.h 		\
 	pub_tool_poolalloc.h 		\
 	pub_tool_hashtable.h 		\
 	pub_tool_libcbase.h 		\
@@ -36,6 +37,7 @@ nobase_pkginclude_HEADERS = \
 	pub_tool_stacktrace.h 		\
 	pub_tool_threadstate.h 		\
 	pub_tool_tooliface.h 		\
+	pub_tool_transtab.h 		\
 	pub_tool_vki.h			\
 	pub_tool_vkiscnums.h		\
 	pub_tool_vkiscnums_asm.h	\
@@ -45,8 +47,8 @@ nobase_pkginclude_HEADERS = \
 	vki/vki-linux.h			\
 	vki/vki-freebsd.h		\
 	vki/vki-darwin.h		\
-	vki/vki-machine-types-amd64-freebsd.h	\
-	vki/vki-machine-types-x86-freebsd.h	\
+	vki/vki-solaris.h		\
+	vki/vki-solaris-repcache.h	\
 	vki/vki-posixtypes-amd64-linux.h \
 	vki/vki-posixtypes-arm64-linux.h \
 	vki/vki-posixtypes-ppc32-linux.h \
@@ -56,6 +58,8 @@ nobase_pkginclude_HEADERS = \
 	vki/vki-posixtypes-s390x-linux.h \
 	vki/vki-posixtypes-mips32-linux.h \
 	vki/vki-posixtypes-mips64-linux.h \
+	vki/vki-posixtypes-amd64-freebsd.h \
+	vki/vki-posixtypes-x86-freebsd.h \
 	vki/vki-amd64-linux.h		\
 	vki/vki-arm64-linux.h		\
 	vki/vki-ppc32-linux.h		\
@@ -78,6 +82,7 @@ nobase_pkginclude_HEADERS = \
 	vki/vki-scnums-mips32-linux.h	\
 	vki/vki-scnums-mips64-linux.h	\
 	vki/vki-scnums-darwin.h         \
+	vki/vki-scnums-solaris.h	\
 	vki/vki-xen.h                   \
 	vki/vki-xen-domctl.h		\
 	vki/vki-xen-evtchn.h		\
@@ -85,8 +90,11 @@ nobase_pkginclude_HEADERS = \
 	vki/vki-xen-hvm.h		\
 	vki/vki-xen-memory.h		\
 	vki/vki-xen-mmuext.h		\
+	vki/vki-xen-physdev.h		\
+	vki/vki-xen-schedop.h		\
 	vki/vki-xen-sysctl.h		\
 	vki/vki-xen-tmem.h		\
 	vki/vki-xen-version.h		\
+	vki/vki-xen-xsm.h		\
 	vki/vki-xen-x86.h		\
 	vki/vki-linux-drm.h

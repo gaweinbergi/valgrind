@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2010-2013 Mozilla Inc
+   Copyright (C) 2010-2015 Mozilla Inc
 
    This program is free software; you can redistribute it and/or
    modify it under the terms of the GNU General Public License as
@@ -37,7 +37,7 @@
 /* See include/pub_tool_libcsetjmp.h for background and rationale. */
 
 /* The alternative implementations are for ppc{32,64}-linux and
-   {amd64,x86}-{linux,darwin}.  See #259977.  That leaves only
+   {amd64,x86}-{linux,darwin,solaris}.  See #259977.  That leaves only
    {arm,s390x}-linux using the gcc builtins now.
 */
 
@@ -377,15 +377,17 @@ __asm__(
 #endif /* VGP_ppc64be_linux */
 
 
-/* ------------ amd64-{linux,darwin} ------------ */
+/* -------- amd64-{linux,darwin,freebsd,solaris} -------- */
 
-#if defined(VGP_amd64_linux) || defined(VGP_amd64_darwin) || defined(VGP_amd64_freebsd)
+#if defined(VGP_amd64_linux) || defined(VGP_amd64_darwin) \
+    || defined(VGP_amd64_freebsd) || defined(VGP_amd64_solaris)
 
 __asm__(
 ".text"  "\n"
 ""       "\n"
 
-#if defined(VGP_amd64_linux) || defined(VGP_amd64_freebsd)
+#if defined(VGP_amd64_linux) || defined(VGP_amd64_freebsd) \
+    || defined(VGP_amd64_solaris)
 ".global VG_MINIMAL_SETJMP"  "\n"  // rdi = jmp_buf
 "VG_MINIMAL_SETJMP:"  "\n"
 
@@ -421,8 +423,8 @@ __asm__(
 "        ret"                      "\n"
 ""       "\n"
 
-
-#if defined(VGP_amd64_linux) || defined(VGP_amd64_freebsd)
+#if defined(VGP_amd64_linux) || defined(VGP_amd64_freebsd) \
+    || defined(VGP_amd64_solaris)
 ".global VG_MINIMAL_LONGJMP"  "\n"
 "VG_MINIMAL_LONGJMP:"  "\n"    // rdi = jmp_buf
 
@@ -470,18 +472,19 @@ __asm__(
 #endif
 );
 
-#endif /* VGP_amd64_linux || VGP_amd64_darwin || VGP_amd64_freebsd */
+#endif /* VGP_amd64_linux || VGP_amd64_darwin || VGP_amd64_freebsd || VGP_amd64_solaris */
 
 
-/* ------------ x86-{linux,darwin} ------------ */
+/* -------- x86-{linux,darwin,freebsd,solaris} -------- */
 
-#if defined(VGP_x86_linux) || defined(VGP_x86_darwin) || defined(VGP_x86_freebsd)
+#if defined(VGP_x86_linux) || defined(VGP_x86_darwin) \
+    || defined(VGP_x86_freebsd) || defined(VGP_x86_solaris)
 
 __asm__(
 ".text"  "\n"
 ""       "\n"
 
-#if defined(VGP_x86_linux) || defined(VGP_x86_freebsd)
+#if defined(VGP_x86_linux) || defined(VGP_x86_freebsd) || defined(VGP_x86_solaris)
 ".global VG_MINIMAL_SETJMP"  "\n"  // eax = jmp_buf
 "VG_MINIMAL_SETJMP:"  "\n"
 
@@ -511,8 +514,7 @@ __asm__(
 "        ret"                      "\n"
 ""       "\n"
 
-
-#if defined(VGP_x86_linux) || defined(VGP_x86_freebsd)
+#if defined(VGP_x86_linux) || defined(VGP_x86_freebsd) || defined(VGP_x86_solaris)
 ".global VG_MINIMAL_LONGJMP"  "\n"
 "VG_MINIMAL_LONGJMP:"  "\n"    // eax = jmp_buf
 
@@ -546,7 +548,7 @@ __asm__(
 #endif
 );
 
-#endif /* VGP_x86_linux || VGP_x86_darwin  || VGP_x86_freebsd */
+#endif /* VGP_x86_linux || VGP_x86_darwin  || VGP_x86_freebsd  || VGP_x86_solaris */
 
 #if defined(VGP_mips32_linux)
 
@@ -592,7 +594,7 @@ __asm__(
 /* Checking whether second argument is zero. */
 "   bnez $a1, 1f                \n\t"
 "   nop                         \n\t"
-"   addi $a1, $a1, 1            \n\t"  /* We must return 1 if val=0. */
+"   addiu $a1, $a1, 1           \n\t"  /* We must return 1 if val=0. */
 "1:                             \n\t"
 "   move $v0, $a1               \n\t"  /* Return value of second argument. */
 "   j    $ra                    \n\t"

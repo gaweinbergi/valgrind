@@ -28,9 +28,10 @@
   The GNU General Public License is contained in the file COPYING.
 */
 
+#include "pub_core_basics_asm.h"
+
 #if defined(VGP_x86_freebsd)
 
-#include "pub_core_basics_asm.h"
 #include "pub_core_vkiscnums_asm.h"
 #include "libvex_guest_offsets.h"
 		
@@ -191,7 +192,10 @@ ML_(blksys_finished):   .long 5b
 .previous
         
 #endif // defined(VGP_x86_freebsd)
- 
+
+/* Let the linker know we don't need an executable stack */
+MARK_STACK_NO_EXEC
+
 /*--------------------------------------------------------------------*/
 /*--- end                                                          ---*/
 /*--------------------------------------------------------------------*/

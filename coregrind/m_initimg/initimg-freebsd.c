@@ -71,7 +71,7 @@ static void load_client ( /*OUT*/ExeInfo* info,
                           /*OUT*/Addr*    client_ip,
 			  /*OUT*/Addr*    client_toc)
 {
-   HChar* exe_name;
+   const HChar* exe_name;
    Int    ret;
    SysRes res;
 
@@ -126,14 +126,14 @@ static void load_client ( /*OUT*/ExeInfo* info,
 */
 static HChar** setup_client_env ( HChar** origenv, const HChar* toolname)
 {
-   HChar* preload_core    = "vgpreload_core";
-   HChar* ld_preload      = "LD_PRELOAD=";
-   HChar* v_launcher      = VALGRIND_LAUNCHER "=";
+   const HChar* preload_core    = "vgpreload_core";
+   const HChar* ld_preload      = "LD_PRELOAD=";
+   const HChar* v_launcher      = VALGRIND_LAUNCHER "=";
    Int    ld_preload_len  = VG_(strlen)( ld_preload );
    Int    v_launcher_len  = VG_(strlen)( v_launcher );
    Bool   ld_preload_done = False;
 #if defined(VGP_x86_freebsd)
-   HChar* ld_32_preload    = "LD_32_PRELOAD=";
+   const HChar* ld_32_preload    = "LD_32_PRELOAD=";
    Int    ld_32_preload_len = VG_(strlen)( ld_32_preload );
    Bool   ld_32_preload_done = False;
 #endif
@@ -581,7 +581,7 @@ Addr setup_client_stack( void*  init_sp,
    *ptr++ = 0;
 
    /* --- envp --- */
-   VG_(client_envp) = (Char **)ptr;
+   VG_(client_envp) = (HChar **)ptr;
    for (cpp = orig_envp; cpp && *cpp; ptr++, cpp++)
       *ptr = (Addr)copy_str(&strtab, *cpp);
    *ptr++ = 0;
@@ -724,7 +724,8 @@ static void setup_client_dataseg ( SizeT max_size )
 /*====================================================================*/
 
 /* Create the client's initial memory image. */
-IIFinaliseImageInfo VG_(ii_create_image)( IICreateImageInfo iicii )
+IIFinaliseImageInfo VG_(ii_create_image)( IICreateImageInfo iicii,
+                                         const VexArchInfo *vex_archinfo)
 {
    ExeInfo info;
    HChar** env = NULL;

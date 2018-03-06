@@ -2,13 +2,10 @@
 #include "tests/malloc.h"
 #include <stdlib.h>
 #include <stdio.h>
-#if defined(VGO_freebsd)
-#include <malloc_np.h>
-#endif
 
 int main(void)
 {
-#  if !defined(VGO_darwin)
+#  if !defined(VGO_darwin) && !defined(VGO_solaris)
    // Because our allocations are in multiples of 8 or 16, 99 will round up
    // to 104 or 112.
    int* x = malloc(99);

@@ -28,34 +28,7 @@
    The GNU General Public License is contained in the file COPYING.
 */
 
-/* This file defines types and constants for the kernel interface, and to
-   make that clear everything is prefixed VKI_/vki_.
-
-   All code is copied verbatim from kernel source files, except that:
-   - VKI_/vki_ prefixes are added
-   - some extra explanatory comments are included;  they are all within
-     "[[ ]]"
-   - for some types, we only care about the size;  for a few of them (big
-     ones that are painful to fully drag in here), a VKI_SIZEOF_* constant
-     is used.
-   
-   The files the code is taken from is indicated.
-
-   Note especially that the types are not the glibc versions, many of which
-   are different to those in here. 
-
-   Also note that this file contains all the generic header info, ie. that
-   from linux/include/linux/ *.h.  The arch-specific header info, eg. that
-   from linux/include/asm-i386/ *.h, is in vki-$PLATFORM.h and
-   vki_posixtypes-$PLATFORM.h.  (Two files are required to avoid
-   circular dependencies between the generic VKI header and the
-   arch-specific VKI header.  It's possible in the future, as more stuff
-   gets pulled in, that we might have to split files up some more to avoid
-   further circular dependencies.)
-   
-   Finally, note that it is assumed that __KERNEL__ is set for all these
-   definitions, which affects some of them.
-*/
+/* See vki-linux.h */
 
 #ifndef __VKI_FREEBSD_H
 #define __VKI_FREEBSD_H
@@ -65,9 +38,9 @@
 //----------------------------------------------------------------------
 
 #if defined(VGA_x86)
-#  include "vki-machine-types-x86-freebsd.h"
+#  include "vki-posixtypes-x86-freebsd.h"
 #elif defined(VGA_amd64)
-#  include "vki-machine-types-amd64-freebsd.h"
+#  include "vki-posixtypes-amd64-freebsd.h"
 #else
 #  error Unknown platform
 #endif
@@ -1343,6 +1316,18 @@ union vki_semun {
 	vki_uint16_t *array;	/* array for GETALL & SETALL */
 };
 
+// XXX This is here for Linux compatibility, but does not match the Linux struct
+struct vki_seminfo {
+        int     semmni,         /* # of semaphore identifiers */
+                semmns,         /* # of semaphores in system */
+                semmnu,         /* # of undo structures in system */
+                semmsl,         /* max # of semaphores per id */
+                semopm,         /* max # of operations per semop call */
+                semume,         /* max # of undo entries per process */
+                semusz,         /* size in bytes of undo structure */
+                semvmx,         /* semaphore maximum value */
+                semaem;         /* adjust on exit max value */
+};
 
 //----------------------------------------------------------------------
 // From sys/errno.h
@@ -1639,8 +1624,29 @@ struct vki_shmid_ds7 {
 };
 
 #define VKI_SHMLBA  VKI_PAGE_SIZE
-#define VKI_SHM_RDONLY  010000  /* read-only access */
 #define	VKI_SHM_ANON	(1UL)
+#define VKI_SHM_RDONLY  010000  /* read-only access */
+#define VKI_SHM_RND     020000  /* round attach address to SHMLBA boundary */
+#define VKI_SHM_STAT 	13
+#define VKI_SHM_INFO 	14
+
+/* Obsolete, used only for backwards compatibility */
+struct	vki_shminfo {
+	int shmmax;
+	int shmmin;
+	int shmmni;
+	int shmseg;
+	int shmall;
+};
+
+struct vki_shm_info {
+	int used_ids;
+	unsigned long shm_tot;	/* total allocated shm */
+	unsigned long shm_rss;	/* total resident shm */
+	unsigned long shm_swp;	/* total swapped shm */
+	unsigned long swap_attempts;
+	unsigned long swap_successes;
+};
 
 #if 0	/* not in freebsd abi */
 #define VKI_SHMAT               21
@@ -1649,162 +1655,6 @@ struct vki_shmid_ds7 {
 #define VKI_SHMCTL              24
 #endif
 
-#if 0
-//----------------------------------------------------------------------
-// From linux-2.6.8.1/include/linux/sockios.h
-//----------------------------------------------------------------------
-
-#define VKI_SIOCOUTQ		VKI_TIOCOUTQ
-
-#define VKI_SIOCADDRT		0x890B	/* add routing table entry	*/
-#define VKI_SIOCDELRT		0x890C	/* delete routing table entry	*/
-
-#define VKI_SIOCGIFNAME		0x8910	/* get iface name		*/
-#define VKI_SIOCGIFCONF		0x8912	/* get iface list		*/
-#define VKI_SIOCGIFFLAGS	0x8913	/* get flags			*/
-#define VKI_SIOCSIFFLAGS	0x8914	/* set flags			*/
-#define VKI_SIOCGIFADDR		0x8915	/* get PA address		*/
-#define VKI_SIOCSIFADDR		0x8916	/* set PA address		*/
-#define VKI_SIOCGIFDSTADDR	0x8917	/* get remote PA address	*/
-#define VKI_SIOCSIFDSTADDR	0x8918	/* set remote PA address	*/
-#define VKI_SIOCGIFBRDADDR	0x8919	/* get broadcast PA address	*/
-#define VKI_SIOCSIFBRDADDR	0x891a	/* set broadcast PA address	*/
-#define VKI_SIOCGIFNETMASK	0x891b	/* get network PA mask		*/
-#define VKI_SIOCSIFNETMASK	0x891c	/* set network PA mask		*/
-#define VKI_SIOCGIFMETRIC	0x891d	/* get metric			*/
-#define VKI_SIOCSIFMETRIC	0x891e	/* set metric			*/
-#define VKI_SIOCGIFMTU		0x8921	/* get MTU size			*/
-#define VKI_SIOCSIFMTU		0x8922	/* set MTU size			*/
-#define	VKI_SIOCSIFHWADDR	0x8924	/* set hardware address 	*/
-#define VKI_SIOCGIFHWADDR	0x8927	/* Get hardware address		*/
-#define VKI_SIOCGIFINDEX	0x8933	/* name -> if_index mapping	*/
-
-#define VKI_SIOCGIFTXQLEN	0x8942	/* Get the tx queue length	*/
-#define VKI_SIOCSIFTXQLEN	0x8943	/* Set the tx queue length 	*/
-
-#define VKI_SIOCGMIIPHY		0x8947	/* Get address of MII PHY in use. */
-#define VKI_SIOCGMIIREG		0x8948	/* Read MII PHY register.	*/
-#define VKI_SIOCSMIIREG		0x8949	/* Write MII PHY register.	*/
-
-#define VKI_SIOCDARP		0x8953	/* delete ARP table entry	*/
-#define VKI_SIOCGARP		0x8954	/* get ARP table entry		*/
-#define VKI_SIOCSARP		0x8955	/* set ARP table entry		*/
-
-#define VKI_SIOCDRARP		0x8960	/* delete RARP table entry	*/
-#define VKI_SIOCGRARP		0x8961	/* get RARP table entry		*/
-#define VKI_SIOCSRARP		0x8962	/* set RARP table entry		*/
-
-#define VKI_SIOCGIFMAP		0x8970	/* Get device parameters	*/
-#define VKI_SIOCSIFMAP		0x8971	/* Set device parameters	*/
-
-//----------------------------------------------------------------------
-// From linux-2.6.9/include/linux/kb.h
-//----------------------------------------------------------------------
-
-#define VKI_GIO_FONT       0x4B60  /* gets font in expanded form */
-#define VKI_PIO_FONT       0x4B61  /* use font in expanded form */
-
-#define VKI_GIO_FONTX      0x4B6B  /* get font using struct consolefontdesc */
-#define VKI_PIO_FONTX      0x4B6C  /* set font using struct consolefontdesc */
-struct vki_consolefontdesc {
-	unsigned short charcount;	/* characters in font (256 or 512) */
-	unsigned short charheight;	/* scan lines per character (1-32) */
-	char __user *chardata;		/* font data in expanded form */
-};
-
-#define VKI_PIO_FONTRESET  0x4B6D  /* reset to default font */
-
-#define VKI_GIO_CMAP       0x4B70  /* gets colour palette on VGA+ */
-#define VKI_PIO_CMAP       0x4B71  /* sets colour palette on VGA+ */
-
-#define VKI_KIOCSOUND      0x4B2F  /* start sound generation (0 for off) */
-#define VKI_KDMKTONE       0x4B30  /* generate tone */
-
-#define VKI_KDGETLED       0x4B31  /* return current led state */
-#define VKI_KDSETLED       0x4B32  /* set led state [lights, not flags] */
-
-#define VKI_KDGKBTYPE      0x4B33  /* get keyboard type */
-
-#define VKI_KDADDIO        0x4B34  /* add i/o port as valid */
-#define VKI_KDDELIO        0x4B35  /* del i/o port as valid */
-#define VKI_KDENABIO       0x4B36  /* enable i/o to video board */
-#define VKI_KDDISABIO      0x4B37  /* disable i/o to video board */
-
-#define VKI_KDSETMODE      0x4B3A  /* set text/graphics mode */
-#define VKI_KDGETMODE      0x4B3B  /* get current mode */
-
-#define VKI_KDMAPDISP      0x4B3C  /* map display into address space */
-#define VKI_KDUNMAPDISP    0x4B3D  /* unmap display from address space */
-
-#define		VKI_E_TABSZ		256
-#define VKI_GIO_SCRNMAP    0x4B40  /* get screen mapping from kernel */
-#define VKI_PIO_SCRNMAP	   0x4B41  /* put screen mapping table in kernel */
-#define VKI_GIO_UNISCRNMAP 0x4B69  /* get full Unicode screen mapping */
-#define VKI_PIO_UNISCRNMAP 0x4B6A  /* set full Unicode screen mapping */
-
-#define VKI_GIO_UNIMAP     0x4B66  /* get unicode-to-font mapping from kernel */
-#define VKI_PIO_UNIMAP     0x4B67  /* put unicode-to-font mapping in kernel */
-#define VKI_PIO_UNIMAPCLR  0x4B68  /* clear table, possibly advise hash algorithm */
-
-#define VKI_KDGKBMODE      0x4B44  /* gets current keyboard mode */
-#define VKI_KDSKBMODE      0x4B45  /* sets current keyboard mode */
-
-#define VKI_KDGKBMETA      0x4B62  /* gets meta key handling mode */
-#define VKI_KDSKBMETA      0x4B63  /* sets meta key handling mode */
-
-#define VKI_KDGKBLED       0x4B64  /* get led flags (not lights) */
-#define VKI_KDSKBLED       0x4B65  /* set led flags (not lights) */
-
-struct vki_kbentry {
-	unsigned char kb_table;
-	unsigned char kb_index;
-	unsigned short kb_value;
-};
-#define VKI_KDGKBENT       0x4B46  /* gets one entry in translation table */
-#define VKI_KDSKBENT       0x4B47  /* sets one entry in translation table */
-
-struct vki_kbsentry {
-	unsigned char kb_func;
-	unsigned char kb_string[512];
-};
-#define VKI_KDGKBSENT      0x4B48  /* gets one function key string entry */
-#define VKI_KDSKBSENT      0x4B49  /* sets one function key string entry */
-
-struct vki_kbdiacr {
-        unsigned char diacr, base, result;
-};
-struct vki_kbdiacrs {
-        unsigned int kb_cnt;    /* number of entries in following array */
-	struct vki_kbdiacr kbdiacr[256];    /* MAX_DIACR from keyboard.h */
-};
-#define VKI_KDGKBDIACR     0x4B4A  /* read kernel accent table */
-#define VKI_KDSKBDIACR     0x4B4B  /* write kernel accent table */
-
-struct vki_kbkeycode {
-	unsigned int scancode, keycode;
-};
-#define VKI_KDGETKEYCODE   0x4B4C  /* read kernel keycode table entry */
-#define VKI_KDSETKEYCODE   0x4B4D  /* write kernel keycode table entry */
-
-#define VKI_KDSIGACCEPT    0x4B4E  /* accept kbd generated signals */
-
-struct vki_kbd_repeat {
-	int delay;	/* in msec; <= 0: don't change */
-	int period;	/* in msec; <= 0: don't change */
-			/* earlier this field was misnamed "rate" */
-};
-#define VKI_KDKBDREP       0x4B52  /* set keyboard delay/repeat rate;
-                                    * actually used values are returned */
-
-#define VKI_KDFONTOP       0x4B72  /* font operations */
-
-//----------------------------------------------------------------------
-// From linux-2.6.9/include/linux/kb.h
-//----------------------------------------------------------------------
-
-typedef __vki_kernel_uid32_t vki_qid_t; /* Type in which we store ids in memory */
-
-#endif
 
 //----------------------------------------------------------------------
 // From sys/ptrace.h

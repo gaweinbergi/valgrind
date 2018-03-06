@@ -9,7 +9,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2013 Julian Seward 
+   Copyright (C) 2000-2015 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -32,7 +32,7 @@
 
 /* This file manages the data structures built by the debuginfo
    system.  These are: the top level SegInfo list.  For each SegInfo,
-   there are tables for for address-to-symbol mappings,
+   there are tables for address-to-symbol mappings,
    address-to-src-file/line mappings, and address-to-CFI-info
    mappings.
 */
@@ -59,10 +59,10 @@
 /*--- Misc (printing, errors)                              ---*/
 /*------------------------------------------------------------*/
 
-/* Show a non-fatal debug info reading error.  Use vg_panic if
-   terminal.  'serious' errors are shown regardless of the
+/* Show a non-fatal debug info reading error.  Use VG_(core_panic) for
+   fatal errors.  'serious' errors are shown regardless of the
    verbosity setting. */
-void ML_(symerr) ( struct _DebugInfo* di, Bool serious, const HChar* msg )
+void ML_(symerr) ( const DebugInfo* di, Bool serious, const HChar* msg )
 {
    /* XML mode hides everything :-( */
    if (VG_(clo_xml))
@@ -92,16 +92,17 @@ void ML_(symerr) ( struct _DebugInfo* di, Bool serious, const HChar* msg )
 
 
 /* Print a symbol. */
-void ML_(ppSym) ( Int idx, DiSym* sym )
+void ML_(ppSym) ( Int idx, const DiSym* sym )
 {
-   HChar** sec_names = sym->sec_names;
+   const HChar** sec_names = sym->sec_names;
    vg_assert(sym->pri_name);
    if (sec_names)
       vg_assert(sec_names);
-   VG_(printf)( "%5d:  %c%c %#8lx .. %#8lx (%d)      %s%s",
+   VG_(printf)( "%5d:  %c%c%c %#8lx .. %#8lx (%u)      %s%s",
                 idx,
                 sym->isText ? 'T' : '-',
                 sym->isIFunc ? 'I' : '-',
+                sym->isGlobal ? 'G' : '-',
                 sym->avmas.main, 
                 sym->avmas.main + sym->size - 1, sym->size,
                 sym->pri_name, sec_names ? " " : "" );
@@ -115,9 +116,9 @@ void ML_(ppSym) ( Int idx, DiSym* sym )
 }
 
 /* Print a call-frame-info summary. */
-void ML_(ppDiCfSI) ( XArray* /* of CfiExpr */ exprs,
+void ML_(ppDiCfSI) ( const XArray* /* of CfiExpr */ exprs,
                      Addr base, UInt len,
-                     DiCfSI_m* si_m )
+                     const DiCfSI_m* si_m )
 {
 #  define SHOW_HOW(_how, _off)                   \
       do {                                       \
@@ -142,8 +143,11 @@ void ML_(ppDiCfSI) ( XArray* /* of CfiExpr */ exprs,
          }                                       \
       } while (0)
 
-   VG_(printf)("[%#lx .. %#lx]: ", base,
-                                   base + (UWord)len - 1);
+   if (base != 0 || len != 0)
+      VG_(printf)("[%#lx .. %#lx]: ", base, base + len - 1);
+   else
+      VG_(printf)("[]: ");
+
    switch (si_m->cfa_how) {
       case CFIC_IA_SPREL: 
          VG_(printf)("let cfa=oldSP+%d", si_m->cfa_off); 
@@ -212,6 +216,11 @@ void ML_(ppDiCfSI) ( XArray* /* of CfiExpr */ exprs,
    SHOW_HOW(si_m->x30_how, si_m->x30_off);
    VG_(printf)(" X29=");
    SHOW_HOW(si_m->x29_how, si_m->x29_off);
+#  elif defined(VGA_tilegx)
+   VG_(printf)(" SP=");
+   SHOW_HOW(si_m->sp_how, si_m->sp_off);
+   VG_(printf)(" FP=");
+   SHOW_HOW(si_m->fp_how, si_m->fp_off);
 #  else
 #    error "Unknown arch"
 #  endif
@@ -224,19 +233,12 @@ void ML_(ppDiCfSI) ( XArray* /* of CfiExpr */ exprs,
 /*--- Adding stuff                                         ---*/
 /*------------------------------------------------------------*/
 
-/* Add a str to the string table, including terminating zero, and
-   return pointer to the string in vg_strtab.  Unless it's been seen
-   recently, in which case we find the old pointer and return that.
-   This avoids the most egregious duplications.
-
-   JSGF: changed from returning an index to a pointer, and changed to
-   a chunking memory allocator rather than reallocating, so the
-   pointers are stable.
+/* If not yet in strpool, add a str to the string pool including terminating
+   zero.
+   Return the pointer to the string in strpool.
 */
-HChar* ML_(addStr) ( struct _DebugInfo* di, const HChar* str, Int len )
+const HChar* ML_(addStr) ( DebugInfo* di, const HChar* str, Int len )
 {
-   HChar* p;
-
    if (len == -1) {
       len = VG_(strlen)(str);
    } else {
@@ -248,8 +250,7 @@ HChar* ML_(addStr) ( struct _DebugInfo* di, const HChar* str, Int len )
                                     ML_(dinfo_zalloc),
                                     "di.storage.addStr.1",
                                     ML_(dinfo_free));
-   p = VG_(allocEltDedupPA) (di->strpool, len+1, str);
-   return p;
+   return VG_(allocEltDedupPA) (di->strpool, len+1, str);
 }
 
 UInt ML_(addFnDn) (struct _DebugInfo* di,
@@ -271,7 +272,7 @@ UInt ML_(addFnDn) (struct _DebugInfo* di,
    return fndn_ix;
 }
 
-const HChar* ML_(fndn_ix2filename) (struct _DebugInfo* di,
+const HChar* ML_(fndn_ix2filename) (const DebugInfo* di,
                                     UInt fndn_ix)
 {
    FnDn *fndn;
@@ -283,7 +284,7 @@ const HChar* ML_(fndn_ix2filename) (struct _DebugInfo* di,
    }
 }
 
-const HChar* ML_(fndn_ix2dirname) (struct _DebugInfo* di,
+const HChar* ML_(fndn_ix2dirname) (const DebugInfo* di,
                                    UInt fndn_ix)
 {
    FnDn *fndn;
@@ -301,13 +302,13 @@ const HChar* ML_(fndn_ix2dirname) (struct _DebugInfo* di,
 /* Add a string to the string table of a DebugInfo, by copying the
    string from the given DiCursor.  Measures the length of the string
    itself. */
-HChar* ML_(addStrFromCursor)( struct _DebugInfo* di, DiCursor c )
+const HChar* ML_(addStrFromCursor)( DebugInfo* di, DiCursor c )
 {
    /* This is a less-than-stellar implementation, but it should
       work. */
    vg_assert(ML_(cur_is_valid)(c));
    HChar* str = ML_(cur_read_strdup)(c, "di.addStrFromCursor.1");
-   HChar* res = ML_(addStr)(di, str, -1);
+   const HChar* res = ML_(addStr)(di, str, -1);
    ML_(dinfo_free)(str);
    return res;
 }
@@ -351,7 +352,7 @@ void ML_(addSym) ( struct _DebugInfo* di, DiSym* sym )
    vg_assert(di->symtab_used <= di->symtab_size);
 }
 
-UInt ML_(fndn_ix) (struct _DebugInfo* di, Word locno)
+UInt ML_(fndn_ix) (const DebugInfo* di, Word locno)
 {
    UInt fndn_ix;
 
@@ -411,12 +412,40 @@ static inline void set_fndn_ix (struct _DebugInfo* di, Word locno, UInt fndn_ix)
    }
 }
 
+
+// Comment the below line to trace LOCTAB merging/canonicalising
+#define TRACE_LOCTAB_CANON(msg,prev_loc,cur_loc)
+#ifndef TRACE_LOCTAB_CANON
+#define TRACE_LOCTAB_CANON(msg,prev_loc,cur_loc)                        \
+   VG_(printf)("%s previous: addr %#lx, size %d, line %d, "             \
+               " current: addr %#lx, size %d, line %d.\n",              \
+               msg,                                                     \
+               (prev_loc)->addr, (prev_loc)->size, (prev_loc)->lineno,  \
+               (cur_loc)->addr, (cur_loc)->size, (cur_loc)->lineno);
+#endif
+
 /* Add a location to the location table. 
 */
 static void addLoc ( struct _DebugInfo* di, DiLoc* loc, UInt fndn_ix )
 {
    /* Zero-sized locs should have been ignored earlier */
    vg_assert(loc->size > 0);
+
+   /* Check if the last entry has adjacent range for the same line. */
+   if (di->loctab_used > 0) {
+      DiLoc *previous = &di->loctab[di->loctab_used - 1];
+      if ((previous->lineno == loc->lineno)
+          && (previous->addr + previous->size == loc->addr)) {
+         if (previous->size + loc->size <= MAX_LOC_SIZE) {
+            TRACE_LOCTAB_CANON ("addLoc merging", previous, loc);
+            previous->size += loc->size;
+            return;
+         } else {
+            TRACE_LOCTAB_CANON ("addLoc merging not done (maxsize)",
+                                previous, loc);
+         }
+      }
+   }
 
    if (di->loctab_used == di->loctab_size) {
       UInt   new_sz;
@@ -462,6 +491,20 @@ static void shrinkLocTab ( struct _DebugInfo* di )
    ML_(dinfo_shrink_block)( di->loctab, new_sz * sizeof(DiLoc));
    ML_(dinfo_shrink_block)( di->loctab_fndn_ix, new_sz * di->sizeof_fndn_ix);
    di->loctab_size = new_sz;
+}
+
+#define COMPLAIN_ONCE(what, limit, limit_op)                   \
+   {                                                           \
+   static Bool complained = False;                             \
+   if (!complained) {                                          \
+      complained = True;                                       \
+      VG_(message)(Vg_UserMsg,                                 \
+                   "warning: Can't handle " what " with "      \
+                   "line number %d " limit_op " than %d\n",    \
+                   lineno, limit);                             \
+      VG_(message)(Vg_UserMsg,                                 \
+                   "(Nb: this message is only shown once)\n"); \
+   } \
 }
 
 
@@ -537,20 +580,12 @@ void ML_(addLineInfo) ( struct _DebugInfo* di,
        return;
    }
 
-   vg_assert(lineno >= 0);
+   if (lineno < 0) {
+      COMPLAIN_ONCE("line info entry", 0, "smaller");
+      return;
+   }
    if (lineno > MAX_LINENO) {
-      static Bool complained = False;
-      if (!complained) {
-         complained = True;
-         VG_(message)(Vg_UserMsg, 
-                      "warning: ignoring line info entry with "
-                      "huge line number (%d)\n", lineno);
-         VG_(message)(Vg_UserMsg, 
-                      "         Can't handle line numbers "
-                      "greater than %d, sorry\n", MAX_LINENO);
-         VG_(message)(Vg_UserMsg, 
-                      "(Nb: this message is only shown once)\n");
-      }
+      COMPLAIN_ONCE("line info entry", MAX_LINENO, "greater");
       return;
    }
 
@@ -628,20 +663,12 @@ void ML_(addInlInfo) ( struct _DebugInfo* di,
        addr_hi = addr_lo + 1;
    }
 
-   vg_assert(lineno >= 0);
+   if (lineno < 0) {
+      COMPLAIN_ONCE ("inlined call info entry", 0, "smaller");
+      return;
+   }
    if (lineno > MAX_LINENO) {
-      static Bool complained = False;
-      if (!complained) {
-         complained = True;
-         VG_(message)(Vg_UserMsg, 
-                      "warning: ignoring inlined call info entry with "
-                      "huge line number (%d)\n", lineno);
-         VG_(message)(Vg_UserMsg, 
-                      "         Can't handle line numbers "
-                      "greater than %d, sorry\n", MAX_LINENO);
-         VG_(message)(Vg_UserMsg, 
-                      "(Nb: this message is only shown once)\n");
-      }
+      COMPLAIN_ONCE ("inlined call info entry", MAX_LINENO, "greater");
       return;
    }
 
@@ -657,14 +684,14 @@ void ML_(addInlInfo) ( struct _DebugInfo* di,
    if (0) VG_(message)
              (Vg_DebugMsg, 
               "addInlInfo: fn %s inlined as addr_lo %#lx,addr_hi %#lx,"
-              "caller fndn_ix %d %s:%d\n",
+              "caller fndn_ix %u %s:%d\n",
               inlinedfn, addr_lo, addr_hi, fndn_ix,
               ML_(fndn_ix2filename) (di, fndn_ix), lineno);
 
    addInl ( di, &inl );
 }
 
-DiCfSI_m* ML_(get_cfsi_m) (struct _DebugInfo* di, UInt pos)
+DiCfSI_m* ML_(get_cfsi_m) (const DebugInfo* di, UInt pos)
 {
    UInt cfsi_m_ix;
 
@@ -690,8 +717,8 @@ void ML_(addDiCfSI) ( struct _DebugInfo* di,
    UInt    new_sz;
    DiCfSI* new_tab;
    SSizeT  delta;
-   struct _DebugInfoMapping* map;
-   struct _DebugInfoMapping* map2;
+   DebugInfoMapping* map;
+   DebugInfoMapping* map2;
 
    if (debug) {
       VG_(printf)("adding DiCfSI: ");
@@ -700,13 +727,18 @@ void ML_(addDiCfSI) ( struct _DebugInfo* di,
 
    /* sanity */
    vg_assert(len > 0);
-   /* If this fails, the implication is you have a single procedure
+   /* Issue a warning if LEN is unexpectedly large (exceeds 5 million).
+      The implication is you have a single procedure 
       with more than 5 million bytes of code.  Which is pretty
       unlikely.  Either that, or the debuginfo reader is somehow
       broken.  5 million is of course arbitrary; but it's big enough
       to be bigger than the size of any plausible piece of code that
-      would fall within a single procedure. */
-   vg_assert(len < 5000000);
+      would fall within a single procedure. But occasionally it does
+      happen (c.f. BZ #339542). */
+   if (len >= 5000000)
+      VG_(message)(Vg_DebugMsg,
+                   "warning: DiCfSI %#lx .. %#lx is huge; length = %u (%s)\n",
+                   base, base + len - 1, len, di->soname);
 
    vg_assert(di->fsm.have_rx_map && di->fsm.have_rw_map);
    /* Find mapping where at least one end of the CFSI falls into. */
@@ -919,16 +951,23 @@ static void ppCfiReg ( CfiReg reg )
       case Creg_ARM_R7:    VG_(printf)("R7");  break;
       case Creg_ARM64_X30: VG_(printf)("X30"); break;
       case Creg_MIPS_RA:   VG_(printf)("RA"); break;
-      case Creg_S390_R14:  VG_(printf)("R14"); break;
+      case Creg_S390_IA:   VG_(printf)("IA"); break;
+      case Creg_S390_SP:   VG_(printf)("SP"); break;
+      case Creg_S390_FP:   VG_(printf)("FP"); break;
+      case Creg_S390_LR:   VG_(printf)("LR"); break;
+      case Creg_TILEGX_IP: VG_(printf)("PC");  break;
+      case Creg_TILEGX_SP: VG_(printf)("SP");  break;
+      case Creg_TILEGX_BP: VG_(printf)("BP");  break;
+      case Creg_TILEGX_LR: VG_(printf)("R55"); break;
       default: vg_assert(0);
    }
 }
 
-void ML_(ppCfiExpr)( XArray* src, Int ix )
+void ML_(ppCfiExpr)( const XArray* src, Int ix )
 {
    /* VG_(indexXA) checks for invalid src/ix values, so we can
       use it indiscriminately. */
-   CfiExpr* e = (CfiExpr*) VG_(indexXA)( src, ix );
+   const CfiExpr* e = VG_(indexXA)( src, ix );
    switch (e->tag) {
       case Cex_Undef: 
          VG_(printf)("Undef"); 
@@ -991,7 +1030,7 @@ void show_scope ( OSet* /* of DiAddrRange */ scope, const HChar* who )
    while (True) {
       range = VG_(OSetGen_Next)( scope );
       if (!range) break;
-      VG_(printf)("   %#lx .. %#lx: %lu vars\n", range->aMin, range->aMax,
+      VG_(printf)("   %#lx .. %#lx: %ld vars\n", range->aMin, range->aMax,
                   range->vars ? VG_(sizeXA)(range->vars) : 0);
    }
    VG_(printf)("}\n");
@@ -1052,14 +1091,12 @@ static void add_var_to_arange (
       vg_assert(first->aMin <= first->aMax);
       /* create a new range */
       nyu = VG_(OSetGen_AllocNode)( scope, sizeof(DiAddrRange) );
-      vg_assert(nyu);
       nyu->aMin = aMin;
       nyu->aMax = tmp;
       vg_assert(nyu->aMin <= nyu->aMax);
       /* copy vars into it */
       vg_assert(first->vars);
       nyu->vars = VG_(cloneXA)( "di.storage.avta.1", first->vars );
-      vg_assert(nyu->vars);
       VG_(OSetGen_Insert)( scope, nyu );
       first = nyu;
    }
@@ -1082,14 +1119,12 @@ static void add_var_to_arange (
       vg_assert(last->aMin <= last->aMax);
       /* create a new range */
       nyu = VG_(OSetGen_AllocNode)( scope, sizeof(DiAddrRange) );
-      vg_assert(nyu);
       nyu->aMin = tmp;
       nyu->aMax = aMax;
       vg_assert(nyu->aMin <= nyu->aMax);
       /* copy vars into it */
       vg_assert(last->vars);
       nyu->vars = VG_(cloneXA)( "di.storage.avta.2", last->vars );
-      vg_assert(nyu->vars);
       VG_(OSetGen_Insert)( scope, nyu );
       last = nyu;
    }
@@ -1154,10 +1189,10 @@ void ML_(addVar)( struct _DebugInfo* di,
                   Int    level,
                   Addr   aMin,
                   Addr   aMax,
-                  HChar* name, /* in di's .strpool */
+                  const  HChar* name, /* in di's .strpool */
                   UWord  typeR, /* a cuOff */
-                  GExpr* gexpr,
-                  GExpr* fbGX,
+                  const GExpr* gexpr,
+                  const GExpr* fbGX,
                   UInt   fndn_ix, /* where decl'd - may be zero.
                                      index in in di's .fndnpool */
                   Int    lineNo, /* where decl'd - may be zero */
@@ -1170,7 +1205,7 @@ void ML_(addVar)( struct _DebugInfo* di,
    MaybeULong mul;
    const HChar* badness;
 
-   tl_assert(di && di->admin_tyents);
+   vg_assert(di && di->admin_tyents);
 
    if (0) {
       VG_(printf)("  ML_(addVar): level %d  %#lx-%#lx  %s :: ",
@@ -1195,7 +1230,7 @@ void ML_(addVar)( struct _DebugInfo* di,
    vg_assert(gexpr);
 
    ent = ML_(TyEnts__index_by_cuOff)( di->admin_tyents, NULL, typeR);
-   tl_assert(ent);
+   vg_assert(ent);
    vg_assert(ML_(TyEnt__is_type)(ent));
 
    /* "Comment_Regarding_Text_Range_Checks" (is referred to elsewhere)
@@ -1265,7 +1300,6 @@ void ML_(addVar)( struct _DebugInfo* di,
                                    ML_(cmp_for_DiAddrRange_range),
                                    ML_(dinfo_zalloc), "di.storage.addVar.2",
                                    ML_(dinfo_free) );
-      vg_assert(scope);
       if (0) VG_(printf)("create: scope = %p, adding at %ld\n",
                          scope, VG_(sizeXA)(di->varinfo));
       VG_(addToXA)( di->varinfo, &scope );
@@ -1275,13 +1309,11 @@ void ML_(addVar)( struct _DebugInfo* di,
          All of these invariants get checked both add_var_to_arange
          and after reading is complete, in canonicaliseVarInfo. */
       nyu = VG_(OSetGen_AllocNode)( scope, sizeof(DiAddrRange) );
-      vg_assert(nyu);
       nyu->aMin = (Addr)0;
       nyu->aMax = ~(Addr)0;
       nyu->vars = VG_(newXA)( ML_(dinfo_zalloc), "di.storage.addVar.3",
                               ML_(dinfo_free),
                               sizeof(DiVariable) );
-      vg_assert(nyu->vars);
       VG_(OSetGen_Insert)( scope, nyu );
    }
 
@@ -1431,8 +1463,8 @@ static Int compare_DiSym ( const void* va, const void* vb )
    preferred.
  */
 static
-Bool preferName ( struct _DebugInfo* di,
-                  HChar* a_name, HChar* b_name,
+Bool preferName ( const DebugInfo* di,
+                  const HChar* a_name, const HChar* b_name,
                   Addr sym_avma/*exposition only*/ )
 {
    Word cmp;
@@ -1451,7 +1483,7 @@ Bool preferName ( struct _DebugInfo* di,
    vlena = VG_(strlen)(a_name);
    vlenb = VG_(strlen)(b_name);
 
-#  if defined(VGO_linux) || defined(VGO_freebsd)
+#  if defined(VGO_linux) || defined(VGO_freebsd) || defined(VGO_solaris)
 #    define VERSION_CHAR '@'
 #  elif defined(VGO_darwin)
 #    define VERSION_CHAR '$'
@@ -1493,7 +1525,7 @@ Bool preferName ( struct _DebugInfo* di,
    {
       Bool blankA = True;
       Bool blankB = True;
-      HChar *s;
+      const HChar *s;
       s = a_name;
       while (*s) {
          if (!VG_(isspace)(*s++)) {
@@ -1571,14 +1603,15 @@ Bool preferName ( struct _DebugInfo* di,
 
 /* Add the names in FROM to the names in TO. */
 static
-void add_DiSym_names_to_from ( DebugInfo* di, DiSym* to, DiSym* from )
+void add_DiSym_names_to_from ( const DebugInfo* di, DiSym* to,
+                               const DiSym* from )
 {
    vg_assert(to->pri_name);
    vg_assert(from->pri_name);
    /* Figure out how many names there will be in the new combined
       secondary vector. */
-   HChar** to_sec   = to->sec_names;
-   HChar** from_sec = from->sec_names;
+   const HChar** to_sec   = to->sec_names;
+   const HChar** from_sec = from->sec_names;
    Word n_new_sec = 1;
    if (from_sec) {
       while (*from_sec) {
@@ -1596,8 +1629,8 @@ void add_DiSym_names_to_from ( DebugInfo* di, DiSym* to, DiSym* from )
       TRACE_SYMTAB("merge: -> %ld\n", n_new_sec);
    /* Create the new sec and copy stuff into it, putting the new
       entries at the end. */
-   HChar** new_sec = ML_(dinfo_zalloc)( "di.storage.aDntf.1",
-                                        (n_new_sec+1) * sizeof(HChar*) );
+   const HChar** new_sec = ML_(dinfo_zalloc)( "di.storage.aDntf.1",
+                                              (n_new_sec+1) * sizeof(HChar*) );
    from_sec = from->sec_names;
    to_sec   = to->sec_names;
    Word i = 0;
@@ -1628,8 +1661,8 @@ static void canonicaliseSymtab ( struct _DebugInfo* di )
 {
    Word  i, j, n_truncated;
    Addr  sta1, sta2, end1, end2, toc1, toc2;
-   HChar *pri1, *pri2, **sec1, **sec2;
-   Bool  ist1, ist2, isf1, isf2;
+   const HChar *pri1, *pri2, **sec1, **sec2;
+   Bool  ist1, ist2, isf1, isf2, isg1, isg2;
 
 #  define SWAP(ty,aa,bb) \
       do { ty tt = (aa); (aa) = (bb); (bb) = tt; } while (0)
@@ -1650,15 +1683,16 @@ static void canonicaliseSymtab ( struct _DebugInfo* di )
 
   cleanup_more:
  
-   /* If two symbols have identical address ranges, and agree on
-      .isText and .isIFunc, merge them into a single entry, but
-      preserve both names, so we end up knowing all the names for that
-      particular address range. */
+   /* BEGIN Detect and "fix" identical address ranges. */
    while (1) {
       Word r, w, n_merged;
       n_merged = 0;
       w = 0;
-      /* A pass merging entries together */
+      /* A pass merging entries together in the case where they agree
+         on .isText -- that is, either: both are .isText or both are
+         not .isText.  They are merged into a single entry, but both
+         sets of names are preserved, so we end up knowing all the
+         names for that particular address range.*/
       for (r = 1; r < di->symtab_used; r++) {
          vg_assert(w < r);
          if (   di->symtab[w].avmas.main == di->symtab[r].avmas.main
@@ -1675,6 +1709,8 @@ static void canonicaliseSymtab ( struct _DebugInfo* di )
             }
             /* mark w as an IFunc if either w or r are */
             di->symtab[w].isIFunc = di->symtab[w].isIFunc || di->symtab[r].isIFunc;
+            /* likewise for global symbols */
+            di->symtab[w].isGlobal = di->symtab[w].isGlobal || di->symtab[r].isGlobal;
             /* and use ::pri_names to indicate this slot is no longer in use */
             di->symtab[r].pri_name = NULL;
             if (di->symtab[r].sec_names) {
@@ -1689,6 +1725,46 @@ static void canonicaliseSymtab ( struct _DebugInfo* di )
             w = r;
          }
       }
+
+      /* A second pass merging entries together where one .isText but
+         the other isn't.  In such cases, just ignore the non-.isText
+         one (a heuristic hack.) */
+      for (r = 1; r < di->symtab_used; r++) {
+         /* Either of the symbols might already have been zapped by
+            the previous pass, so we first have to check that. */
+         if (di->symtab[r-1].pri_name == NULL) continue;
+         if (di->symtab[r-0].pri_name == NULL) continue;
+         /* ok, they are both still valid.  Identical address ranges? */
+         if (di->symtab[r-1].avmas.main != di->symtab[r-0].avmas.main) continue;
+         if (di->symtab[r-1].size       != di->symtab[r-0].size) continue;
+         /* Identical address ranges.  They must disagree on .isText
+            since if they agreed, the previous pass would have merged
+            them. */
+         if (di->symtab[r-1].isText && di->symtab[r-0].isText) vg_assert(0);
+         if (!di->symtab[r-1].isText && !di->symtab[r-0].isText) vg_assert(0);
+         Word to_zap  = di->symtab[r-1].isText ? (r-0) : (r-1);
+         Word to_keep = di->symtab[r-1].isText ? (r-1) : (r-0);
+         vg_assert(!di->symtab[to_zap].isText);
+         vg_assert(di->symtab[to_keep].isText);
+         /* Add to_zap's names to to_keep if to_zap has secondary names 
+            or to_zap's and to_keep's primary names differ. */
+         if (di->symtab[to_zap].sec_names 
+             || (0 != VG_(strcmp)(di->symtab[to_zap].pri_name,
+                                  di->symtab[to_keep].pri_name))) {
+            add_DiSym_names_to_from(di, &di->symtab[to_keep],
+                                        &di->symtab[to_zap]);
+         }
+         /* Mark to_zap as not-in use in the same way as in the
+            previous loop. */
+         di->symtab[to_zap].pri_name = NULL;
+         if (di->symtab[to_zap].sec_names) {
+            ML_(dinfo_free)(di->symtab[to_zap].sec_names);
+            di->symtab[to_zap].sec_names = NULL;
+         }
+         VG_(memset)(&di->symtab[to_zap], 0, sizeof(DiSym));
+         n_merged++;
+      }
+
       TRACE_SYMTAB( "canonicaliseSymtab: %ld symbols merged\n", n_merged);
       if (n_merged == 0)
          break;
@@ -1705,9 +1781,10 @@ static void canonicaliseSymtab ( struct _DebugInfo* di )
       }
       vg_assert(w + n_merged == di->symtab_used);
       di->symtab_used = w;
-   }
+   } /* while (1) */
+   /* END Detect and "fix" identical address ranges. */
 
-   /* Detect and "fix" overlapping address ranges. */
+   /* BEGIN Detect and "fix" overlapping address ranges. */
    n_truncated = 0;
 
    for (i = 0; i < ((Word)di->symtab_used) -1; i++) {
@@ -1737,6 +1814,7 @@ static void canonicaliseSymtab ( struct _DebugInfo* di )
       sec1 = di->symtab[i].sec_names;
       ist1 = di->symtab[i].isText;
       isf1 = di->symtab[i].isIFunc;
+      isg1 = di->symtab[i].isGlobal;
 
       sta2 = di->symtab[i+1].avmas.main;
       end2 = sta2 + di->symtab[i+1].size - 1;
@@ -1746,6 +1824,7 @@ static void canonicaliseSymtab ( struct _DebugInfo* di )
       sec2 = di->symtab[i+1].sec_names;
       ist2 = di->symtab[i+1].isText;
       isf2 = di->symtab[i+1].isIFunc;
+      isg2 = di->symtab[i+1].isGlobal;
 
       if (sta1 < sta2) {
          end1 = sta2 - 1;
@@ -1754,8 +1833,8 @@ static void canonicaliseSymtab ( struct _DebugInfo* di )
          if (end1 > end2) { 
             sta1 = end2 + 1;
             SWAP(Addr,sta1,sta2); SWAP(Addr,end1,end2); SWAP(Addr,toc1,toc2);
-            SWAP(HChar*,pri1,pri2); SWAP(HChar**,sec1,sec2);
-            SWAP(Bool,ist1,ist2); SWAP(Bool,isf1,isf2);
+            SWAP(const HChar*,pri1,pri2); SWAP(const HChar**,sec1,sec2);
+            SWAP(Bool,ist1,ist2); SWAP(Bool,isf1,isf2); SWAP(Bool, isg1, isg2);
          } else 
          if (end1 < end2) {
             sta2 = end1 + 1;
@@ -1772,6 +1851,7 @@ static void canonicaliseSymtab ( struct _DebugInfo* di )
       di->symtab[i].sec_names = sec1;
       di->symtab[i].isText    = ist1;
       di->symtab[i].isIFunc   = isf1;
+      di->symtab[i].isGlobal  = isg1;
 
       di->symtab[i+1].avmas.main = sta2;
       di->symtab[i+1].size       = end2 - sta2 + 1;
@@ -1781,6 +1861,7 @@ static void canonicaliseSymtab ( struct _DebugInfo* di )
       di->symtab[i+1].sec_names = sec2;
       di->symtab[i+1].isText    = ist2;
       di->symtab[i+1].isIFunc   = isf2;
+      di->symtab[i+1].isGlobal  = isg2;
 
       vg_assert(sta1 <= sta2);
       vg_assert(di->symtab[i].size > 0);
@@ -1795,6 +1876,7 @@ static void canonicaliseSymtab ( struct _DebugInfo* di )
       }
       n_truncated++;
    }
+   /* END Detect and "fix" overlapping address ranges. */
 
    if (n_truncated > 0) goto cleanup_more;
 
@@ -1825,7 +1907,7 @@ static void canonicaliseSymtab ( struct _DebugInfo* di )
       show the user. */
    for (i = 0; i < ((Word)di->symtab_used)-1; i++) {
       DiSym*  sym = &di->symtab[i];
-      HChar** sec = sym->sec_names;
+      const HChar** sec = sym->sec_names;
       if (!sec)
          continue;
       /* Slow but simple.  Copy all the cands into a temp array,
@@ -1833,8 +1915,8 @@ static void canonicaliseSymtab ( struct _DebugInfo* di )
       Word n_tmp = 1;
       while (*sec) { n_tmp++; sec++; }
       j = 0;
-      HChar** tmp = ML_(dinfo_zalloc)( "di.storage.cS.1",
-                                       (n_tmp+1) * sizeof(HChar*) );
+      const HChar** tmp = ML_(dinfo_zalloc)( "di.storage.cS.1",
+                                             (n_tmp+1) * sizeof(HChar*) );
       tmp[j++] = sym->pri_name;
       sec = sym->sec_names;
       while (*sec) { tmp[j++] = *sec; sec++; }
@@ -1852,7 +1934,7 @@ static void canonicaliseSymtab ( struct _DebugInfo* di )
       vg_assert(best >= 0 && best < n_tmp);
       /* Copy back */
       sym->pri_name = tmp[best];
-      HChar** cursor = sym->sec_names;
+      const HChar** cursor = sym->sec_names;
       for (j = 0; j < n_tmp; j++) {
          if (j == best)
             continue;
@@ -1870,8 +1952,8 @@ static void canonicaliseSymtab ( struct _DebugInfo* di )
 static DiLoc* sorting_loctab = NULL;
 static Int compare_DiLoc_via_ix ( const void* va, const void* vb ) 
 {
-   const DiLoc* a = &sorting_loctab[*(UInt*)va];
-   const DiLoc* b = &sorting_loctab[*(UInt*)vb];
+   const DiLoc* a = &sorting_loctab[*(const UInt*)va];
+   const DiLoc* b = &sorting_loctab[*(const UInt*)vb];
    if (a->addr < b->addr) return -1;
    if (a->addr > b->addr) return  1;
    return 0;
@@ -1934,13 +2016,15 @@ static void canonicaliseLoctab ( struct _DebugInfo* di )
    /* sort loctab and loctab_fndn_ix by addr. */
    sort_loctab_and_loctab_fndn_ix (di);
 
-   /* If two adjacent entries overlap, truncate the first. */
    for (i = 0; i < ((Word)di->loctab_used)-1; i++) {
       vg_assert(di->loctab[i].size < 10000);
+      /* If two adjacent entries overlap, truncate the first. */
       if (di->loctab[i].addr + di->loctab[i].size > di->loctab[i+1].addr) {
          /* Do this in signed int32 because the actual .size fields
             are only 12 bits. */
          Int new_size = di->loctab[i+1].addr - di->loctab[i].addr;
+         TRACE_LOCTAB_CANON ("Truncating",
+                             &(di->loctab[i]), &(di->loctab[i+1]));
          if (new_size < 0) {
             di->loctab[i].size = 0;
          } else
@@ -1969,7 +2053,7 @@ static void canonicaliseLoctab ( struct _DebugInfo* di )
    /* Ensure relevant postconditions hold. */
    for (i = 0; i < ((Word)di->loctab_used)-1; i++) {
       if (0)
-         VG_(printf)("%lu  0x%p  lno:%d sz:%d fndn_ix:%d  i+1 0x%p\n", 
+         VG_(printf)("%ld  0x%p  lno:%d sz:%d fndn_ix:%u  i+1 0x%p\n", 
                      i,
                      (void*)di->loctab[i].addr,
                      di->loctab[i].lineno, 
@@ -2050,7 +2134,7 @@ static Int compare_DiCfSI ( const void* va, const void* vb )
    return 0;
 }
 
-static void get_cfsi_rd_stats ( struct _DebugInfo* di,
+static void get_cfsi_rd_stats ( const DebugInfo* di,
                                 UWord *n_mergeables, UWord *n_holes )
 {
    Word i;
@@ -2101,9 +2185,9 @@ void ML_(canonicaliseCFI) ( struct _DebugInfo* di )
    }
 
    if (di->trace_cfi)
-      VG_(printf)("canonicaliseCfiSI: %ld entries, %#lx .. %#lx\n",
+      VG_(printf)("canonicaliseCfiSI: %lu entries, %#lx .. %#lx\n",
                   di->cfsi_used,
-	          di->cfsi_minavma, di->cfsi_maxavma);
+                  di->cfsi_minavma, di->cfsi_maxavma);
 
    /* Sort the cfsi_rd array by base address. */
    VG_(ssort)(di->cfsi_rd, di->cfsi_used, sizeof(*di->cfsi_rd), compare_DiCfSI);
@@ -2280,7 +2364,7 @@ void ML_(canonicaliseTables) ( struct _DebugInfo* di )
 /* Find a symbol-table index containing the specified pointer, or -1
    if not found.  Binary search.  */
 
-Word ML_(search_one_symtab) ( struct _DebugInfo* di, Addr ptr,
+Word ML_(search_one_symtab) ( const DebugInfo* di, Addr ptr,
                               Bool match_anywhere_in_sym,
                               Bool findText )
 {
@@ -2313,7 +2397,7 @@ Word ML_(search_one_symtab) ( struct _DebugInfo* di, Addr ptr,
 /* Find a location-table index containing the specified pointer, or -1
    if not found.  Binary search.  */
 
-Word ML_(search_one_loctab) ( struct _DebugInfo* di, Addr ptr )
+Word ML_(search_one_loctab) ( const DebugInfo* di, Addr ptr )
 {
    Addr a_mid_lo, a_mid_hi;
    Word mid, 
@@ -2337,7 +2421,7 @@ Word ML_(search_one_loctab) ( struct _DebugInfo* di, Addr ptr )
 /* Find a CFI-table index containing the specified pointer, or -1
    if not found.  Binary search.  */
 
-Word ML_(search_one_cfitab) ( struct _DebugInfo* di, Addr ptr )
+Word ML_(search_one_cfitab) ( const DebugInfo* di, Addr ptr )
 {
    Word mid, 
         lo = 0, 
@@ -2367,7 +2451,7 @@ Word ML_(search_one_cfitab) ( struct _DebugInfo* di, Addr ptr )
 /* Find a FPO-table index containing the specified pointer, or -1
    if not found.  Binary search.  */
 
-Word ML_(search_one_fpotab) ( struct _DebugInfo* di, Addr ptr )
+Word ML_(search_one_fpotab) ( const DebugInfo* di, Addr ptr )
 {
    Addr const addr = ptr - di->fpo_base_avma;
    Addr a_mid_lo, a_mid_hi;

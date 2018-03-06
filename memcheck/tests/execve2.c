@@ -4,6 +4,7 @@
 int main ( int argc, char** argv, char** envp )
 {
    char* null_filename = NULL;
+   // Not all OSes support NULL argv and envp, but this works on all
    char* null_argv[] = {NULL};
    char* null_envp[] = {NULL};
 

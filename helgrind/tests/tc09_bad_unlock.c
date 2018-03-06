@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 void* child_fn ( void* arg )
 {
@@ -30,7 +31,7 @@ void nearly_main ( void )
 
    pthread_mutex_init( &mx2, NULL );
    pthread_mutex_lock( &mx2 );
-   // start child and get it to unlock this lock
+   // start child and get it to unlock this lock/
 
    pthread_create( &child, NULL, child_fn, (void*)&mx2 );
       /* child runs and attempts to unlock our lock.  Error 
@@ -38,6 +39,10 @@ void nearly_main ( void )
    pthread_join(child, NULL );
 
    /* Unlocking a totally bogus lock. */
+#ifdef __FreeBSD__
+#  define THR_MUTEX_DESTROYED ((pthread_mutex_t)2)
+   *(uintptr_t *)&bogus[50] = (uintptr_t)THR_MUTEX_DESTROYED;
+#endif
    pthread_mutex_unlock( (pthread_mutex_t*) &bogus[50] ); /* ERROR */
 
    /* Now we get a freeing-locked-lock error, since the stack

@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2013 Julian Seward 
+   Copyright (C) 2000-2015 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -38,6 +38,11 @@
 #include "pub_core_libcsignal.h"    /* self */
 #include "pub_core_libcproc.h"
 
+#if !defined(VGO_solaris)
+#   define _VKI_MAXSIG (_VKI_NSIG - 1)
+#endif
+STATIC_ASSERT((_VKI_MAXSIG % _VKI_NSIG_BPW) != 0);
+
 /* IMPORTANT: on Darwin it is essential to use the _nocancel versions
    of syscalls rather than the vanilla version, if a _nocancel version
    is available.  See docs/internals/Darwin-notes.txt for the reason
@@ -49,6 +54,13 @@
    either 32 or 64, and hence the sig[] words can either be 32- or
    64-bits.  And which they are it doesn't necessarily follow from the
    host word size. */
+
+/* Functions VG_(isemptysigset) and VG_(isfullsigset) check only bits that
+   represent valid signals (i.e. signals <= _VKI_MAXSIG).  The same applies
+   for the comparison in VG_(iseqsigset).  This is important because when
+   a signal set is received from an operating system then bits which represent
+   signals > _VKI_MAXSIG can have unexpected values for Valgrind. This is
+   mainly specific to the Solaris kernel which clears these bits. */
 
 Int VG_(sigfillset)( vki_sigset_t* set )
 {
@@ -74,8 +86,18 @@ Bool VG_(isemptysigset)( const vki_sigset_t* set )
 {
    Int i;
    vg_assert(set != NULL);
-   for (i = 0; i < _VKI_NSIG_WORDS; i++)
-      if (set->sig[i] != 0) return False;
+   for (i = 0; i < _VKI_NSIG_WORDS; i++) {
+      if (_VKI_NSIG_BPW * (i + 1) <= (_VKI_MAXSIG + 1)) {
+         /* Full word check. */
+         if (set->sig[i] != 0) return False;
+      }
+      else {
+         /* Partial word check. */
+         ULong mask = (1UL << (_VKI_MAXSIG % _VKI_NSIG_BPW)) - 1;
+         if ((set->sig[i] & mask) != 0) return False;
+         break;
+      }
+   }
    return True;
 }
 
@@ -83,8 +105,18 @@ Bool VG_(isfullsigset)( const vki_sigset_t* set )
 {
    Int i;
    vg_assert(set != NULL);
-   for (i = 0; i < _VKI_NSIG_WORDS; i++)
-      if (set->sig[i] != ~0) return False;
+   for (i = 0; i < _VKI_NSIG_WORDS; i++) {
+      if (_VKI_NSIG_BPW * (i + 1) <= (_VKI_MAXSIG + 1)) {
+         /* Full word check. */
+         if (set->sig[i] != ~0) return False;
+      }
+      else {
+         /* Partial word check. */
+         ULong mask = (1UL << (_VKI_MAXSIG % _VKI_NSIG_BPW)) - 1;
+         if ((set->sig[i] & mask) != mask) return False;
+         break;
+      }
+   }
    return True;
 }
 
@@ -92,8 +124,18 @@ Bool VG_(iseqsigset)( const vki_sigset_t* set1, const vki_sigset_t* set2 )
 {
    Int i;
    vg_assert(set1 != NULL && set2 != NULL);
-   for (i = 0; i < _VKI_NSIG_WORDS; i++)
-      if (set1->sig[i] != set2->sig[i]) return False;
+   for (i = 0; i < _VKI_NSIG_WORDS; i++) {
+      if (_VKI_NSIG_BPW * (i + 1) <= (_VKI_MAXSIG + 1)) {
+         /* Full word comparison. */
+         if (set1->sig[i] != set2->sig[i]) return False;
+      }
+      else {
+         /* Partial word comparison. */
+         ULong mask = (1UL << (_VKI_MAXSIG % _VKI_NSIG_BPW)) - 1;
+         if ((set1->sig[i] & mask) != (set2->sig[i] & mask)) return False;
+         break;
+      }
+   }
    return True;
 }
 
@@ -134,7 +176,7 @@ Int VG_(sigismember) ( const vki_sigset_t* set, Int signum )
 }
 
 /* Add all signals in src to dst. */
-void VG_(sigaddset_from_set)( vki_sigset_t* dst, vki_sigset_t* src )
+void VG_(sigaddset_from_set)( vki_sigset_t* dst, const vki_sigset_t* src )
 {
    Int i;
    vg_assert(dst != NULL && src != NULL);
@@ -143,7 +185,7 @@ void VG_(sigaddset_from_set)( vki_sigset_t* dst, vki_sigset_t* src )
 }
 
 /* Remove all signals in src from dst. */
-void VG_(sigdelset_from_set)( vki_sigset_t* dst, vki_sigset_t* src )
+void VG_(sigdelset_from_set)( vki_sigset_t* dst, const vki_sigset_t* src )
 {
    Int i;
    vg_assert(dst != NULL && src != NULL);
@@ -152,7 +194,7 @@ void VG_(sigdelset_from_set)( vki_sigset_t* dst, vki_sigset_t* src )
 }
 
 /* dst = dst `intersect` src. */
-void VG_(sigintersectset)( vki_sigset_t* dst, vki_sigset_t* src )
+void VG_(sigintersectset)( vki_sigset_t* dst, const vki_sigset_t* src )
 {
    Int i;
    vg_assert(dst != NULL && src != NULL);
@@ -161,7 +203,7 @@ void VG_(sigintersectset)( vki_sigset_t* dst, vki_sigset_t* src )
 }
 
 /* dst = ~src */
-void VG_(sigcomplementset)( vki_sigset_t* dst, vki_sigset_t* src )
+void VG_(sigcomplementset)( vki_sigset_t* dst, const vki_sigset_t* src )
 {
    Int i;
    vg_assert(dst != NULL && src != NULL);
@@ -175,7 +217,7 @@ void VG_(sigcomplementset)( vki_sigset_t* dst, vki_sigset_t* src )
 */
 Int VG_(sigprocmask)( Int how, const vki_sigset_t* set, vki_sigset_t* oldset)
 {
-#  if defined(VGO_linux) || defined(VGO_freebsd)
+#  if defined(VGO_linux) || defined(VGO_freebsd) || defined(VGO_solaris)
 #  if defined(__NR_rt_sigprocmask)
    SysRes res = VG_(do_syscall4)(__NR_rt_sigprocmask, 
                                  how, (UWord)set, (UWord)oldset, 
@@ -273,7 +315,8 @@ Int VG_(sigaction) ( Int signum,
    }
    return sr_isError(res) ? -1 : 0;
 
-#  elif defined(VGO_freebsd)
+#  elif defined(VGO_freebsd) || defined(VGO_solaris)
+   /* vki_sigaction_toK_t and vki_sigaction_fromK_t are identical types. */
    SysRes res = VG_(do_syscall3)(__NR_sigaction,
                                  signum, (UWord)act, (UWord)oldact);
    return sr_isError(res) ? -1 : 0;
@@ -286,10 +329,10 @@ Int VG_(sigaction) ( Int signum,
 
 /* See explanation in pub_core_libcsignal.h. */
 void 
-VG_(convert_sigaction_fromK_to_toK)( vki_sigaction_fromK_t* fromK,
+VG_(convert_sigaction_fromK_to_toK)( const vki_sigaction_fromK_t* fromK,
                                      /*OUT*/vki_sigaction_toK_t* toK )
 {
-#  if defined(VGO_linux) || defined(VGO_freebsd)
+#  if defined(VGO_linux) || defined(VGO_freebsd) || defined(VGO_solaris)
    *toK = *fromK;
 #  elif defined(VGO_darwin)
    toK->ksa_handler = fromK->ksa_handler;
@@ -304,7 +347,7 @@ VG_(convert_sigaction_fromK_to_toK)( vki_sigaction_fromK_t* fromK,
 
 Int VG_(kill)( Int pid, Int signo )
 {
-#  if defined(VGO_linux)
+#  if defined(VGO_linux) || defined(VGO_solaris)
    SysRes res = VG_(do_syscall2)(__NR_kill, pid, signo);
 #  elif defined(VGO_darwin) || defined(VGO_freebsd)
    SysRes res = VG_(do_syscall3)(__NR_kill,
@@ -333,6 +376,21 @@ Int VG_(tkill)( Int lwpid, Int signo )
 #  elif defined(VGO_freebsd)
    SysRes res;
    res = VG_(do_syscall2)(__NR_thr_kill, lwpid, signo);
+   return sr_isError(res) ? -1 : 0;
+
+#  elif defined(VGO_solaris)
+   SysRes res;
+#     if defined(SOLARIS_LWP_SIGQUEUE_SYSCALL)
+#        if defined(SOLARIS_LWP_SIGQUEUE_SYSCALL_TAKES_PID)
+            res = VG_(do_syscall6)(__NR_lwp_sigqueue, 0, lwpid, signo,
+                                   0, VKI_SI_LWP, 0);
+#        else
+            res = VG_(do_syscall5)(__NR_lwp_sigqueue, lwpid, signo,
+                                   0, VKI_SI_LWP, 0);
+#        endif
+#     else
+         res = VG_(do_syscall2)(__NR_lwp_kill, lwpid, signo);
+#     endif
    return sr_isError(res) ? -1 : 0;
 
 #  else
@@ -426,7 +484,7 @@ Int VG_(sigtimedwait_zero)( const vki_sigset_t *set,
 
   /* don't try for signals not in 'set' */
   /* pending = pending `intersect` set */
-  VG_(sigintersectset)(&pending, (vki_sigset_t*)set);
+  VG_(sigintersectset)(&pending, (const vki_sigset_t*)set);
 
   /* don't try for signals not blocked at the moment */
   ir = VG_(sigprocmask)(VKI_SIG_SETMASK, NULL, &blocked);
@@ -496,18 +554,18 @@ Int VG_(sigtimedwait_zero)( const vki_sigset_t *set,
  * platforms we have to check.
  */
 #  if __FreeBSD__ < 7
-static void sigtimedwait_zero_handler ( Int sig ) 
-{ 
+static void sigtimedwait_zero_handler ( Int sig )
+{
    vg_assert(sig != VKI_SIGILL);
    vg_assert(sig != VKI_SIGSEGV);
    vg_assert(sig != VKI_SIGBUS);
    vg_assert(sig != VKI_SIGTRAP);
    vg_assert(sig != VKI_SIGSYS);
-   /* do nothing */ 
+   /* do nothing */
 }
 #  endif
 
-Int VG_(sigtimedwait_zero)( const vki_sigset_t *set, 
+Int VG_(sigtimedwait_zero)( const vki_sigset_t *set,
                             vki_siginfo_t *info )
 {
 #  if __FreeBSD__ < 7
@@ -535,7 +593,7 @@ Int VG_(sigtimedwait_zero)( const vki_sigset_t *set,
 #  endif
   if (have_sigtimedwait_zero) {
 #  endif
-     SysRes res = VG_(do_syscall3)(__NR_sigtimedwait, (UWord)set, (UWord)info, 
+     SysRes res = VG_(do_syscall3)(__NR_sigtimedwait, (UWord)set, (UWord)info,
                                    (UWord)&zero);
      return sr_isError(res) ? -1 : sr_Res(res);
 #  if __FreeBSD__ < 7
@@ -568,7 +626,7 @@ Int VG_(sigtimedwait_zero)( const vki_sigset_t *set,
 
   /* fetch signal i.
      pre: i is blocked and pending
-     pre: we are the only thread running 
+     pre: we are the only thread running
   */
   /* Set up alternative signal handler */
   VG_(sigfillset)(&allbutone);
@@ -586,7 +644,7 @@ Int VG_(sigtimedwait_zero)( const vki_sigset_t *set,
   vg_assert(sr.isError);
   if (0)
      VG_(debugLog)(0, "libcsignal",
-                      "sigtimedwait_zero: sigsuspend got res %ld err %ld\n", 
+                      "sigtimedwait_zero: sigsuspend got res %ld err %ld\n",
                       sr.res, sr.err);
   vg_assert(sr.res == (UWord)-1);
 
@@ -599,7 +657,17 @@ Int VG_(sigtimedwait_zero)( const vki_sigset_t *set,
   info->si_signo = i;
 
   return i;
-#  endif
+#  endif // __FreeBSD__ < 7
+}
+
+#elif defined(VGO_solaris)
+Int VG_(sigtimedwait_zero)( const vki_sigset_t *set, vki_siginfo_t *info )
+{
+   /* Trivial as on Linux. */
+   static const struct vki_timespec zero = { 0, 0 };
+   SysRes res = VG_(do_syscall3)(__NR_sigtimedwait, (UWord)set, (UWord)info,
+                                 (UWord)&zero);
+   return sr_isError(res) ? -1 : sr_Res(res);
 }
 
 #else

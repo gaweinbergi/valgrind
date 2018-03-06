@@ -8,7 +8,7 @@
    This file is part of MemCheck, a heavyweight Valgrind tool for
    detecting memory errors.
 
-   Copyright (C) 2000-2013 Julian Seward 
+   Copyright (C) 2000-2015 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -210,7 +210,7 @@ typedef
 
       /* READONLY: the guest layout.  This indicates which parts of
          the guest state should be regarded as 'always defined'. */
-      VexGuestLayout* layout;
+      const VexGuestLayout* layout;
 
       /* READONLY: the host word type.  Needed for constructing
          arguments of type 'HWord' to be passed to helper functions.
@@ -381,6 +381,7 @@ static IRType shadowTypeV ( IRType ty )
       case Ity_I32: 
       case Ity_I64: 
       case Ity_I128: return ty;
+      case Ity_F16:  return Ity_I16;
       case Ity_F32:  return Ity_I32;
       case Ity_D32:  return Ity_I32;
       case Ity_F64:  return Ity_I64;
@@ -848,6 +849,17 @@ static IRAtom* mkPCastTo( MCEnv* mce, IRType dst_ty, IRAtom* vbits )
          IRAtom* tmp3 = assignNew('V', mce, Ity_I64, unop(Iop_128to64, vbits));
          IRAtom* tmp4 = assignNew('V', mce, Ity_I64, binop(Iop_Or64, tmp2, tmp3));
          tmp1         = assignNew('V', mce, Ity_I1, 
+                                       unop(Iop_CmpNEZ64, tmp4));
+         break;
+      }
+      case Ity_V128: {
+         /* Chop it in half, OR the halves together, and compare that
+          * with zero.
+          */
+         IRAtom* tmp2 = assignNew('V', mce, Ity_I64, unop(Iop_V128HIto64, vbits));
+         IRAtom* tmp3 = assignNew('V', mce, Ity_I64, unop(Iop_V128to64, vbits));
+         IRAtom* tmp4 = assignNew('V', mce, Ity_I64, binop(Iop_Or64, tmp2, tmp3));
+         tmp1         = assignNew('V', mce, Ity_I1,
                                        unop(Iop_CmpNEZ64, tmp4));
          break;
       }
@@ -1449,7 +1461,6 @@ void do_shadow_PUT ( MCEnv* mce,  Int offset,
 
    ty = typeOfIRExpr(mce->sb->tyenv, vatom);
    tl_assert(ty != Ity_I1);
-   tl_assert(ty != Ity_I128);
    if (isAlwaysDefd(mce, offset, sizeofIRType(ty))) {
       /* later: no ... */
       /* emit code to emit a complaint if any of the vbits are 1. */
@@ -1771,8 +1782,25 @@ IRAtom* mkLazy4 ( MCEnv* mce, IRType finalVty,
       operation.  Here are some special cases which use PCast only
       twice rather than three times. */
 
-   /* I32 x I64 x I64 x I64 -> I64 */
    /* Standard FP idiom: rm x FParg1 x FParg2 x FParg3 -> FPresult */
+
+   if (t1 == Ity_I32 && t2 == Ity_I128 && t3 == Ity_I128 && t4 == Ity_I128
+       && finalVty == Ity_I128) {
+      if (0) VG_(printf)("mkLazy4: I32 x I128 x I128 x I128 -> I128\n");
+      /* Widen 1st arg to I128.  Since 1st arg is typically a rounding
+         mode indication which is fully defined, this should get
+         folded out later. */
+      at = mkPCastTo(mce, Ity_I128, va1);
+      /* Now fold in 2nd, 3rd, 4th args. */
+      at = mkUifU(mce, Ity_I128, at, va2);
+      at = mkUifU(mce, Ity_I128, at, va3);
+      at = mkUifU(mce, Ity_I128, at, va4);
+      /* and PCast once again. */
+      at = mkPCastTo(mce, Ity_I128, at);
+      return at;
+   }
+
+   /* I32 x I64 x I64 x I64 -> I64 */
    if (t1 == Ity_I32 && t2 == Ity_I64 && t3 == Ity_I64 && t4 == Ity_I64
        && finalVty == Ity_I64) {
       if (0) VG_(printf)("mkLazy4: I32 x I64 x I64 x I64 -> I64\n");
@@ -2390,6 +2418,35 @@ IRAtom* binary32Fx8_w_rm ( MCEnv* mce, IRAtom* vRM,
    return t1;
 }
 
+/* --- 64Fx2 unary FP ops, with rounding mode --- */
+
+static
+IRAtom* unary64Fx2_w_rm ( MCEnv* mce, IRAtom* vRM, IRAtom* vatomX )
+{
+   /* Same scheme as binary64Fx2_w_rm. */
+   // "do" the vector arg
+   IRAtom* t1 = unary64Fx2(mce, vatomX);
+   // PCast the RM, and widen it to 128 bits
+   IRAtom* t2 = mkPCastTo(mce, Ity_V128, vRM);
+   // Roll it into the result
+   t1 = mkUifUV128(mce, t1, t2);
+   return t1;
+}
+
+/* --- ... and ... 32Fx4 versions of the same --- */
+
+static
+IRAtom* unary32Fx4_w_rm ( MCEnv* mce, IRAtom* vRM, IRAtom* vatomX )
+{
+   /* Same scheme as unary32Fx4_w_rm. */
+   IRAtom* t1 = unary32Fx4(mce, vatomX);
+   // PCast the RM, and widen it to 128 bits
+   IRAtom* t2 = mkPCastTo(mce, Ity_V128, vRM);
+   // Roll it into the result
+   t1 = mkUifUV128(mce, t1, t2);
+   return t1;
+}
+
 
 /* --- --- Vector saturated narrowing --- --- */
 
@@ -2469,6 +2526,7 @@ IROp vanillaNarrowingOpOfShape ( IROp qnarrowOp )
       case Iop_QNarrowUn32Uto16Ux4:
       case Iop_QNarrowUn32Sto16Sx4:
       case Iop_QNarrowUn32Sto16Ux4:
+      case Iop_F32toF16x4:
          return Iop_NarrowUn32to16x4;
       case Iop_QNarrowUn16Uto8Ux8:
       case Iop_QNarrowUn16Sto8Sx8:
@@ -2540,6 +2598,7 @@ IRAtom* vectorNarrowUnV128 ( MCEnv* mce, IROp narrow_op,
       case Iop_NarrowUn16to8x8:
       case Iop_NarrowUn32to16x4:
       case Iop_NarrowUn64to32x2:
+      case Iop_F32toF16x4:
          at1 = assignNew('V', mce, Ity_I64, unop(narrow_op, vatom1));
          return at1;
       default:
@@ -2578,6 +2637,7 @@ IRAtom* vectorWidenI64 ( MCEnv* mce, IROp longen_op,
       case Iop_Widen16Sto32x4: pcast = mkPCast32x4; break;
       case Iop_Widen32Uto64x2: pcast = mkPCast64x2; break;
       case Iop_Widen32Sto64x2: pcast = mkPCast64x2; break;
+      case Iop_F16toF32x4:     pcast = mkPCast32x4; break;
       default: VG_(tool_panic)("vectorWidenI64");
    }
    tl_assert(isShadowAtom(mce,vatom1));
@@ -2766,6 +2826,13 @@ IRAtom* expr2vbits_Qop ( MCEnv* mce,
          /* I32(rm) x F32 x F32 x F32 -> F32 */
          return mkLazy4(mce, Ity_I32, vatom1, vatom2, vatom3, vatom4);
 
+      case Iop_MAddF128:
+      case Iop_MSubF128:
+      case Iop_NegMAddF128:
+      case Iop_NegMSubF128:
+         /* I32(rm) x F128 x F128 x F128 -> F128 */
+         return mkLazy4(mce, Ity_I128, vatom1, vatom2, vatom3, vatom4);
+
       /* V256-bit data-steering */
       case Iop_64x4toV256:
          return assignNew('V', mce, Ity_V256,
@@ -2798,12 +2865,12 @@ IRAtom* expr2vbits_Triop ( MCEnv* mce,
    tl_assert(sameKindedAtoms(atom3,vatom3));
    switch (op) {
       case Iop_AddF128:
-      case Iop_AddD128:
       case Iop_SubF128:
-      case Iop_SubD128:
       case Iop_MulF128:
-      case Iop_MulD128:
       case Iop_DivF128:
+      case Iop_AddD128:
+      case Iop_SubD128:
+      case Iop_MulD128:
       case Iop_DivD128:
       case Iop_QuantizeD128:
          /* I32(rm) x F128/D128 x F128/D128 -> F128/D128 */
@@ -2858,11 +2925,6 @@ IRAtom* expr2vbits_Triop ( MCEnv* mce,
       case Iop_SetElem32x2:
          complainIfUndefined(mce, atom2, NULL);
          return assignNew('V', mce, Ity_I64, triop(op, vatom1, atom2, vatom3));
-      /* BCDIops */
-      case Iop_BCDAdd:
-      case Iop_BCDSub:
-         complainIfUndefined(mce, atom3, NULL);
-         return assignNew('V', mce, Ity_V128, triop(op, vatom1, vatom2, atom3));
 
       /* Vector FP with rounding mode as the first arg */
       case Iop_Add64Fx2:
@@ -3174,6 +3236,11 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
 
       /* V128-bit SIMD */
 
+      case Iop_Sqrt32Fx4:
+         return unary32Fx4_w_rm(mce, vatom1, vatom2);
+      case Iop_Sqrt64Fx2:
+         return unary64Fx2_w_rm(mce, vatom1, vatom2);
+
       case Iop_ShrN8x16:
       case Iop_ShrN16x8:
       case Iop_ShrN32x4:
@@ -3378,6 +3445,8 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
       case Iop_CipherLV128:
       case Iop_NCipherV128:
       case Iop_NCipherLV128:
+      case Iop_MulI128by10E:
+      case Iop_MulI128by10ECarry:
         return binary64Ix2(mce, vatom1, vatom2);
 
       case Iop_QNarrowBin64Sto32Sx4:
@@ -3396,6 +3465,8 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
       case Iop_CmpLE64Fx2:
       case Iop_CmpEQ64Fx2:
       case Iop_CmpUN64Fx2:
+      case Iop_RecipStep64Fx2:
+      case Iop_RSqrtStep64Fx2:
          return binary64Fx2(mce, vatom1, vatom2);      
 
       case Iop_Sub64F0x2:
@@ -3680,11 +3751,16 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
 
       case Iop_ShrV128:
       case Iop_ShlV128:
+      case Iop_I128StoBCD128:
          /* Same scheme as with all other shifts.  Note: 10 Nov 05:
             this is wrong now, scalar shifts are done properly lazily.
             Vector shifts should be fixed too. */
          complainIfUndefined(mce, atom2, NULL);
          return assignNew('V', mce, Ity_V128, binop(op, vatom1, atom2));
+
+      case Iop_BCDAdd:
+      case Iop_BCDSub:
+         return mkLazy2(mce, Ity_V128, vatom1, vatom2);
 
       /* SHA Iops */
       case Iop_SHA256:
@@ -3732,6 +3808,7 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
       case Iop_TanF64:
       case Iop_2xm1F64:
       case Iop_SqrtF64:
+      case Iop_RecpExpF64:
          /* I32(rm) x I64/F64 -> I64/F64 */
          return mkLazy2(mce, Ity_I64, vatom1, vatom2);
 
@@ -3745,6 +3822,10 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
       case Iop_ShrD128:
       case Iop_RoundD128toInt:
          /* I32(rm) x D128 -> D128 */
+         return mkLazy2(mce, Ity_I128, vatom1, vatom2);
+
+      case Iop_RoundF128toInt:
+         /* I32(rm) x F128 -> F128 */
          return mkLazy2(mce, Ity_I128, vatom1, vatom2);
 
       case Iop_D64toI64S:
@@ -3783,6 +3864,7 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
 
       case Iop_RoundF32toInt:
       case Iop_SqrtF32:
+      case Iop_RecpExpF32:
          /* I32(rm) x I32/F32 -> I32/F32 */
          return mkLazy2(mce, Ity_I32, vatom1, vatom2);
 
@@ -3797,12 +3879,21 @@ IRAtom* expr2vbits_Binop ( MCEnv* mce,
          /* First arg is I32 (rounding mode), second is F32/I32 (data). */
          return mkLazy2(mce, Ity_I32, vatom1, vatom2);
 
+      case Iop_F64toF16:
+      case Iop_F32toF16:
+         /* First arg is I32 (rounding mode), second is F64/F32 (data). */
+         return mkLazy2(mce, Ity_I16, vatom1, vatom2);
+
       case Iop_F128toI32S: /* IRRoundingMode(I32) x F128 -> signed I32  */
       case Iop_F128toI32U: /* IRRoundingMode(I32) x F128 -> unsigned I32  */
       case Iop_F128toF32:  /* IRRoundingMode(I32) x F128 -> F32         */
       case Iop_D128toI32S: /* IRRoundingMode(I32) x D128 -> signed I32  */
       case Iop_D128toI32U: /* IRRoundingMode(I32) x D128 -> unsigned I32  */
          return mkLazy2(mce, Ity_I32, vatom1, vatom2);
+
+      case Iop_F128toI128S:   /* IRRoundingMode(I32) x F128 -> signed I128 */
+      case Iop_RndF128:       /* IRRoundingMode(I32) x F128 -> F128 */
+         return mkLazy2(mce, Ity_I128, vatom1, vatom2);
 
       case Iop_F128toI64S: /* IRRoundingMode(I32) x F128 -> signed I64  */
       case Iop_F128toI64U: /* IRRoundingMode(I32) x F128 -> unsigned I64  */
@@ -4241,9 +4332,10 @@ IRExpr* expr2vbits_Unop ( MCEnv* mce, IROp op, IRAtom* atom )
    tl_assert(isOriginalAtom(mce,atom));
    switch (op) {
 
-      case Iop_Sqrt64Fx2:
       case Iop_Abs64Fx2:
       case Iop_Neg64Fx2:
+      case Iop_RSqrtEst64Fx2:
+      case Iop_RecipEst64Fx2:
          return unary64Fx2(mce, vatom);
 
       case Iop_Sqrt64F0x2:
@@ -4257,7 +4349,6 @@ IRExpr* expr2vbits_Unop ( MCEnv* mce, IROp op, IRAtom* atom )
       case Iop_Sqrt64Fx4:
          return unary64Fx4(mce, vatom);
 
-      case Iop_Sqrt32Fx4:
       case Iop_RecipEst32Fx4:
       case Iop_I32UtoFx4:
       case Iop_I32StoFx4:
@@ -4315,7 +4406,19 @@ IRExpr* expr2vbits_Unop ( MCEnv* mce, IROp op, IRAtom* atom )
 
       case Iop_NegF128:
       case Iop_AbsF128:
+      case Iop_RndF128:
+      case Iop_TruncF128toI64S: /* F128 -> I64S */
+      case Iop_TruncF128toI32S: /* F128 -> I32S (result stored in 64-bits) */
+      case Iop_TruncF128toI64U: /* F128 -> I64U */
+      case Iop_TruncF128toI32U: /* F128 -> I32U (result stored in 64-bits) */
          return mkPCastTo(mce, Ity_I128, vatom);
+
+      case Iop_BCD128toI128S:
+      case Iop_MulI128by10:
+      case Iop_MulI128by10Carry:
+      case Iop_F16toF64x2:
+      case Iop_F64toF16x2:
+         return vatom;
 
       case Iop_I32StoF128: /* signed I32 -> F128 */
       case Iop_I64StoF128: /* signed I64 -> F128 */
@@ -4329,6 +4432,7 @@ IRExpr* expr2vbits_Unop ( MCEnv* mce, IROp op, IRAtom* atom )
       case Iop_I64UtoD128: /* unsigned I64 -> D128 */
          return mkPCastTo(mce, Ity_I128, vatom);
 
+      case Iop_F16toF64:
       case Iop_F32toF64: 
       case Iop_I32StoF64:
       case Iop_I32UtoF64:
@@ -4358,6 +4462,7 @@ IRExpr* expr2vbits_Unop ( MCEnv* mce, IROp op, IRAtom* atom )
       case Iop_TruncF64asF32:
       case Iop_NegF32:
       case Iop_AbsF32:
+      case Iop_F16toF32: 
          return mkPCastTo(mce, Ity_I32, vatom);
 
       case Iop_Ctz32:
@@ -4450,6 +4555,7 @@ IRExpr* expr2vbits_Unop ( MCEnv* mce, IROp op, IRAtom* atom )
       case Iop_Clz8x16:
       case Iop_Cls8x16:
       case Iop_Abs8x16:
+      case Iop_Ctz8x16:
          return mkPCast8x16(mce, vatom);
 
       case Iop_CmpNEZ16x4:
@@ -4462,6 +4568,7 @@ IRExpr* expr2vbits_Unop ( MCEnv* mce, IROp op, IRAtom* atom )
       case Iop_Clz16x8:
       case Iop_Cls16x8:
       case Iop_Abs16x8:
+      case Iop_Ctz16x8:
          return mkPCast16x8(mce, vatom);
 
       case Iop_CmpNEZ32x2:
@@ -4479,6 +4586,7 @@ IRExpr* expr2vbits_Unop ( MCEnv* mce, IROp op, IRAtom* atom )
       case Iop_FtoI32Sx4_RZ:
       case Iop_Abs32x4:
       case Iop_RSqrtEst32Ux4:
+      case Iop_Ctz32x4:
          return mkPCast32x4(mce, vatom);
 
       case Iop_CmpwNEZ32:
@@ -4491,6 +4599,7 @@ IRExpr* expr2vbits_Unop ( MCEnv* mce, IROp op, IRAtom* atom )
       case Iop_CipherSV128:
       case Iop_Clz64x2:
       case Iop_Abs64x2:
+      case Iop_Ctz64x2:
          return mkPCast64x2(mce, vatom);
 
       case Iop_PwBitMtxXpose64x2:
@@ -4508,6 +4617,7 @@ IRExpr* expr2vbits_Unop ( MCEnv* mce, IROp op, IRAtom* atom )
       case Iop_QNarrowUn64Sto32Sx2:
       case Iop_QNarrowUn64Sto32Ux2:
       case Iop_QNarrowUn64Uto32Ux2:
+      case Iop_F32toF16x4:
          return vectorNarrowUnV128(mce, op, vatom);
 
       case Iop_Widen8Sto16x8:
@@ -4516,6 +4626,7 @@ IRExpr* expr2vbits_Unop ( MCEnv* mce, IROp op, IRAtom* atom )
       case Iop_Widen16Uto32x4:
       case Iop_Widen32Sto64x2:
       case Iop_Widen32Uto64x2:
+      case Iop_F16toF32x4:
          return vectorWidenI64(mce, op, vatom);
 
       case Iop_PwAddL32Ux2:
@@ -4682,7 +4793,7 @@ IRAtom* expr2vbits_Load_WRK ( MCEnv* mce,
       di->guard = guard;
       /* Ideally the didn't-happen return value here would be all-ones
          (all-undefined), so it'd be obvious if it got used
-         inadvertantly.  We can get by with the IR-mandated default
+         inadvertently.  We can get by with the IR-mandated default
          value (0b01 repeating, 0x55 etc) as that'll still look pretty
          undefined if it ever leaks out. */
    }
@@ -5462,20 +5573,36 @@ static
 void do_AbiHint ( MCEnv* mce, IRExpr* base, Int len, IRExpr* nia )
 {
    IRDirty* di;
-   /* Minor optimisation: if not doing origin tracking, ignore the
-      supplied nia and pass zero instead.  This is on the basis that
-      MC_(helperc_MAKE_STACK_UNINIT) will ignore it anyway, and we can
-      almost always generate a shorter instruction to put zero into a
-      register than any other value. */
-   if (MC_(clo_mc_level) < 3)
-      nia = mkIRExpr_HWord(0);
 
-   di = unsafeIRDirty_0_N(
-           0/*regparms*/,
-           "MC_(helperc_MAKE_STACK_UNINIT)",
-           VG_(fnptr_to_fnentry)( &MC_(helperc_MAKE_STACK_UNINIT) ),
-           mkIRExprVec_3( base, mkIRExpr_HWord( (UInt)len), nia )
-        );
+   if (MC_(clo_mc_level) == 3) {
+      di = unsafeIRDirty_0_N(
+              3/*regparms*/,
+              "MC_(helperc_MAKE_STACK_UNINIT_w_o)",
+              VG_(fnptr_to_fnentry)( &MC_(helperc_MAKE_STACK_UNINIT_w_o) ),
+              mkIRExprVec_3( base, mkIRExpr_HWord( (UInt)len), nia )
+           );
+   } else {
+      /* We ignore the supplied nia, since it is irrelevant. */
+      tl_assert(MC_(clo_mc_level) == 2 || MC_(clo_mc_level) == 1);
+      /* Special-case the len==128 case, since that is for amd64-ELF,
+         which is a very common target. */
+      if (len == 128) {
+         di = unsafeIRDirty_0_N(
+                 1/*regparms*/,
+                 "MC_(helperc_MAKE_STACK_UNINIT_128_no_o)",
+                 VG_(fnptr_to_fnentry)( &MC_(helperc_MAKE_STACK_UNINIT_128_no_o)),
+                 mkIRExprVec_1( base )
+              );
+      } else {
+         di = unsafeIRDirty_0_N(
+                 2/*regparms*/,
+                 "MC_(helperc_MAKE_STACK_UNINIT_no_o)",
+                 VG_(fnptr_to_fnentry)( &MC_(helperc_MAKE_STACK_UNINIT_no_o) ),
+                 mkIRExprVec_2( base, mkIRExpr_HWord( (UInt)len) )
+              );
+      }
+   }
+
    stmt( 'V', mce, IRStmt_Dirty(di) );
 }
 
@@ -6027,11 +6154,13 @@ static void do_shadow_LoadG ( MCEnv* mce, IRLoadG* lg )
    IROp   vwiden   = Iop_INVALID;
    IRType loadedTy = Ity_INVALID;
    switch (lg->cvt) {
-      case ILGop_Ident32: loadedTy = Ity_I32; vwiden = Iop_INVALID; break;
-      case ILGop_16Uto32: loadedTy = Ity_I16; vwiden = Iop_16Uto32; break;
-      case ILGop_16Sto32: loadedTy = Ity_I16; vwiden = Iop_16Sto32; break;
-      case ILGop_8Uto32:  loadedTy = Ity_I8;  vwiden = Iop_8Uto32;  break;
-      case ILGop_8Sto32:  loadedTy = Ity_I8;  vwiden = Iop_8Sto32;  break;
+      case ILGop_IdentV128: loadedTy = Ity_V128; vwiden = Iop_INVALID; break;
+      case ILGop_Ident64:   loadedTy = Ity_I64;  vwiden = Iop_INVALID; break;
+      case ILGop_Ident32:   loadedTy = Ity_I32;  vwiden = Iop_INVALID; break;
+      case ILGop_16Uto32:   loadedTy = Ity_I16;  vwiden = Iop_16Uto32; break;
+      case ILGop_16Sto32:   loadedTy = Ity_I16;  vwiden = Iop_16Sto32; break;
+      case ILGop_8Uto32:    loadedTy = Ity_I8;   vwiden = Iop_8Uto32;  break;
+      case ILGop_8Sto32:    loadedTy = Ity_I8;   vwiden = Iop_8Sto32;  break;
       default: VG_(tool_panic)("do_shadow_LoadG");
    }
 
@@ -6200,13 +6329,12 @@ static Bool checkForBogusLiterals ( /*FLAT*/ IRStmt* st )
 
 IRSB* MC_(instrument) ( VgCallbackClosure* closure,
                         IRSB* sb_in, 
-                        VexGuestLayout* layout, 
-                        VexGuestExtents* vge,
-                        VexArchInfo* archinfo_host,
+                        const VexGuestLayout* layout, 
+                        const VexGuestExtents* vge,
+                        const VexArchInfo* archinfo_host,
                         IRType gWordTy, IRType hWordTy )
 {
    Bool    verboze = 0||False;
-   Bool    bogus;
    Int     i, j, first_stmt;
    IRStmt* st;
    MCEnv   mce;
@@ -6223,7 +6351,6 @@ IRSB* MC_(instrument) ( VgCallbackClosure* closure,
    tl_assert(sizeof(Addr)   == sizeof(void*));
    tl_assert(sizeof(ULong)  == 8);
    tl_assert(sizeof(Long)   == 8);
-   tl_assert(sizeof(Addr64) == 8);
    tl_assert(sizeof(UInt)   == 4);
    tl_assert(sizeof(Int)    == 4);
 
@@ -6259,6 +6386,7 @@ IRSB* MC_(instrument) ( VgCallbackClosure* closure,
 
    mce.tmpMap = VG_(newXA)( VG_(malloc), "mc.MC_(instrument).1", VG_(free),
                             sizeof(TempMapEnt));
+   VG_(hintSizeXA) (mce.tmpMap, sb_in->tyenv->types_used);
    for (i = 0; i < sb_in->tyenv->types_used; i++) {
       TempMapEnt ent;
       ent.kind    = Orig;
@@ -6268,32 +6396,35 @@ IRSB* MC_(instrument) ( VgCallbackClosure* closure,
    }
    tl_assert( VG_(sizeXA)( mce.tmpMap ) == sb_in->tyenv->types_used );
 
-   /* Make a preliminary inspection of the statements, to see if there
-      are any dodgy-looking literals.  If there are, we generate
-      extra-detailed (hence extra-expensive) instrumentation in
-      places.  Scan the whole bb even if dodgyness is found earlier,
-      so that the flatness assertion is applied to all stmts. */
+   if (MC_(clo_expensive_definedness_checks)) {
+      /* For expensive definedness checking skip looking for bogus
+         literals. */
+      mce.bogusLiterals = True;
+   } else {
+      /* Make a preliminary inspection of the statements, to see if there
+         are any dodgy-looking literals.  If there are, we generate
+         extra-detailed (hence extra-expensive) instrumentation in
+         places.  Scan the whole bb even if dodgyness is found earlier,
+         so that the flatness assertion is applied to all stmts. */
+      Bool bogus = False;
 
-   bogus = False;
+      for (i = 0; i < sb_in->stmts_used; i++) {
+         st = sb_in->stmts[i];
+         tl_assert(st);
+         tl_assert(isFlatIRStmt(st));
 
-   for (i = 0; i < sb_in->stmts_used; i++) {
-
-      st = sb_in->stmts[i];
-      tl_assert(st);
-      tl_assert(isFlatIRStmt(st));
-
-      if (!bogus) {
-         bogus = checkForBogusLiterals(st);
-         if (0 && bogus) {
-            VG_(printf)("bogus: ");
-            ppIRStmt(st);
-            VG_(printf)("\n");
+         if (!bogus) {
+            bogus = checkForBogusLiterals(st);
+            if (0 && bogus) {
+               VG_(printf)("bogus: ");
+               ppIRStmt(st);
+               VG_(printf)("\n");
+            }
+            if (bogus) break;
          }
       }
-
+      mce.bogusLiterals = bogus;
    }
-
-   mce.bogusLiterals = bogus;
 
    /* Copy verbatim any IR preamble preceding the first IMark */
 
@@ -6507,6 +6638,7 @@ IRSB* MC_(instrument) ( VgCallbackClosure* closure,
    return sb_out;
 }
 
+
 /*------------------------------------------------------------*/
 /*--- Post-tree-build final tidying                        ---*/
 /*------------------------------------------------------------*/
@@ -6525,17 +6657,69 @@ IRSB* MC_(instrument) ( VgCallbackClosure* closure,
    reference, which is kinda pointless.  MC_(final_tidy) therefore
    looks for such repeated calls and removes all but the first. */
 
-/* A struct for recording which (helper, guard) pairs we have already
+
+/* With some testing on perf/bz2.c, on amd64 and x86, compiled with
+   gcc-5.3.1 -O2, it appears that 16 entries in the array are enough to
+   get almost all the benefits of this transformation whilst causing
+   the slide-back case to just often enough to be verifiably
+   correct.  For posterity, the numbers are:
+
+   bz2-32
+
+   1   4,336 (112,212 -> 1,709,473; ratio 15.2)
+   2   4,336 (112,194 -> 1,669,895; ratio 14.9)
+   3   4,336 (112,194 -> 1,660,713; ratio 14.8)
+   4   4,336 (112,194 -> 1,658,555; ratio 14.8)
+   5   4,336 (112,194 -> 1,655,447; ratio 14.8)
+   6   4,336 (112,194 -> 1,655,101; ratio 14.8)
+   7   4,336 (112,194 -> 1,654,858; ratio 14.7)
+   8   4,336 (112,194 -> 1,654,810; ratio 14.7)
+   10  4,336 (112,194 -> 1,654,621; ratio 14.7)
+   12  4,336 (112,194 -> 1,654,678; ratio 14.7)
+   16  4,336 (112,194 -> 1,654,494; ratio 14.7)
+   32  4,336 (112,194 -> 1,654,602; ratio 14.7)
+   inf 4,336 (112,194 -> 1,654,602; ratio 14.7)
+
+   bz2-64
+
+   1   4,113 (107,329 -> 1,822,171; ratio 17.0)
+   2   4,113 (107,329 -> 1,806,443; ratio 16.8)
+   3   4,113 (107,329 -> 1,803,967; ratio 16.8)
+   4   4,113 (107,329 -> 1,802,785; ratio 16.8)
+   5   4,113 (107,329 -> 1,802,412; ratio 16.8)
+   6   4,113 (107,329 -> 1,802,062; ratio 16.8)
+   7   4,113 (107,329 -> 1,801,976; ratio 16.8)
+   8   4,113 (107,329 -> 1,801,886; ratio 16.8)
+   10  4,113 (107,329 -> 1,801,653; ratio 16.8)
+   12  4,113 (107,329 -> 1,801,526; ratio 16.8)
+   16  4,113 (107,329 -> 1,801,298; ratio 16.8)
+   32  4,113 (107,329 -> 1,800,827; ratio 16.8)
+   inf 4,113 (107,329 -> 1,800,827; ratio 16.8)
+*/
+
+/* Structs for recording which (helper, guard) pairs we have already
    seen. */
+
+#define N_TIDYING_PAIRS 16
+
 typedef
    struct { void* entry; IRExpr* guard; }
    Pair;
+
+typedef
+   struct {
+      Pair pairs[N_TIDYING_PAIRS +1/*for bounds checking*/];
+      UInt pairsUsed;
+   }
+   Pairs;
+
 
 /* Return True if e1 and e2 definitely denote the same value (used to
    compare guards).  Return False if unknown; False is the safe
    answer.  Since guest registers and guest memory do not have the
    SSA property we must return False if any Gets or Loads appear in
-   the expression. */
+   the expression.  This implicitly assumes that e1 and e2 have the
+   same IR type, which is always true here -- the type is Ity_I1. */
 
 static Bool sameIRValue ( IRExpr* e1, IRExpr* e2 )
 {
@@ -6584,45 +6768,98 @@ static Bool sameIRValue ( IRExpr* e1, IRExpr* e2 )
    True if so.  If not, add an entry. */
 
 static 
-Bool check_or_add ( XArray* /*of Pair*/ pairs, IRExpr* guard, void* entry )
+Bool check_or_add ( Pairs* tidyingEnv, IRExpr* guard, void* entry )
 {
-   Pair  p;
-   Pair* pp;
-   Int   i, n = VG_(sizeXA)( pairs );
+   UInt i, n = tidyingEnv->pairsUsed;
+   tl_assert(n <= N_TIDYING_PAIRS);
    for (i = 0; i < n; i++) {
-      pp = VG_(indexXA)( pairs, i );
-      if (pp->entry == entry && sameIRValue(pp->guard, guard))
+      if (tidyingEnv->pairs[i].entry == entry
+          && sameIRValue(tidyingEnv->pairs[i].guard, guard))
          return True;
    }
-   p.guard = guard;
-   p.entry = entry;
-   VG_(addToXA)( pairs, &p );
+   /* (guard, entry) wasn't found in the array.  Add it at the end.
+      If the array is already full, slide the entries one slot
+      backwards.  This means we will lose to ability to detect
+      duplicates from the pair in slot zero, but that happens so
+      rarely that it's unlikely to have much effect on overall code
+      quality.  Also, this strategy loses the check for the oldest
+      tracked exit (memory reference, basically) and so that is (I'd
+      guess) least likely to be re-used after this point. */
+   tl_assert(i == n);
+   if (n == N_TIDYING_PAIRS) {
+      for (i = 1; i < N_TIDYING_PAIRS; i++) {
+         tidyingEnv->pairs[i-1] = tidyingEnv->pairs[i];
+      }
+      tidyingEnv->pairs[N_TIDYING_PAIRS-1].entry = entry;
+      tidyingEnv->pairs[N_TIDYING_PAIRS-1].guard = guard;
+   } else {
+      tl_assert(n < N_TIDYING_PAIRS);
+      tidyingEnv->pairs[n].entry = entry;
+      tidyingEnv->pairs[n].guard = guard;
+      n++;
+      tidyingEnv->pairsUsed = n;
+   }
    return False;
 }
 
 static Bool is_helperc_value_checkN_fail ( const HChar* name )
 {
-   return
-      0==VG_(strcmp)(name, "MC_(helperc_value_check0_fail_no_o)")
-      || 0==VG_(strcmp)(name, "MC_(helperc_value_check1_fail_no_o)")
-      || 0==VG_(strcmp)(name, "MC_(helperc_value_check4_fail_no_o)")
-      || 0==VG_(strcmp)(name, "MC_(helperc_value_check8_fail_no_o)")
-      || 0==VG_(strcmp)(name, "MC_(helperc_value_check0_fail_w_o)")
-      || 0==VG_(strcmp)(name, "MC_(helperc_value_check1_fail_w_o)")
-      || 0==VG_(strcmp)(name, "MC_(helperc_value_check4_fail_w_o)")
-      || 0==VG_(strcmp)(name, "MC_(helperc_value_check8_fail_w_o)");
+   /* This is expensive because it happens a lot.  We are checking to
+      see whether |name| is one of the following 8 strings:
+
+         MC_(helperc_value_check8_fail_no_o)
+         MC_(helperc_value_check4_fail_no_o)
+         MC_(helperc_value_check0_fail_no_o)
+         MC_(helperc_value_check1_fail_no_o)
+         MC_(helperc_value_check8_fail_w_o)
+         MC_(helperc_value_check0_fail_w_o)
+         MC_(helperc_value_check1_fail_w_o)
+         MC_(helperc_value_check4_fail_w_o)
+
+      To speed it up, check the common prefix just once, rather than
+      all 8 times.
+   */
+   const HChar* prefix = "MC_(helperc_value_check";
+
+   HChar n, p;
+   while (True) {
+      n = *name;
+      p = *prefix;
+      if (p == 0) break; /* ran off the end of the prefix */
+      /* We still have some prefix to use */
+      if (n == 0) return False; /* have prefix, but name ran out */
+      if (n != p) return False; /* have both pfx and name, but no match */
+      name++;
+      prefix++;
+   }
+
+   /* Check the part after the prefix. */
+   tl_assert(*prefix == 0 && *name != 0);
+   return    0==VG_(strcmp)(name, "8_fail_no_o)")
+          || 0==VG_(strcmp)(name, "4_fail_no_o)")
+          || 0==VG_(strcmp)(name, "0_fail_no_o)")
+          || 0==VG_(strcmp)(name, "1_fail_no_o)")
+          || 0==VG_(strcmp)(name, "8_fail_w_o)")
+          || 0==VG_(strcmp)(name, "4_fail_w_o)")
+          || 0==VG_(strcmp)(name, "0_fail_w_o)")
+          || 0==VG_(strcmp)(name, "1_fail_w_o)");
 }
 
 IRSB* MC_(final_tidy) ( IRSB* sb_in )
 {
-   Int i;
+   Int       i;
    IRStmt*   st;
    IRDirty*  di;
    IRExpr*   guard;
    IRCallee* cee;
    Bool      alreadyPresent;
-   XArray*   pairs = VG_(newXA)( VG_(malloc), "mc.ft.1",
-                                 VG_(free), sizeof(Pair) );
+   Pairs     pairs;
+
+   pairs.pairsUsed = 0;
+
+   pairs.pairs[N_TIDYING_PAIRS].entry = (void*)0x123;
+   pairs.pairs[N_TIDYING_PAIRS].guard = (IRExpr*)0x456;
+
    /* Scan forwards through the statements.  Each time a call to one
       of the relevant helpers is seen, check if we have made a
       previous call to the same helper using the same guard
@@ -6643,15 +6880,20 @@ IRSB* MC_(final_tidy) ( IRSB* sb_in )
           guard 'guard'.  Check if we have already seen a call to this
           function with the same guard.  If so, delete it.  If not,
           add it to the set of calls we do know about. */
-      alreadyPresent = check_or_add( pairs, guard, cee->addr );
+      alreadyPresent = check_or_add( &pairs, guard, cee->addr );
       if (alreadyPresent) {
          sb_in->stmts[i] = IRStmt_NoOp();
          if (0) VG_(printf)("XX\n");
       }
    }
-   VG_(deleteXA)( pairs );
+
+   tl_assert(pairs.pairs[N_TIDYING_PAIRS].entry == (void*)0x123);
+   tl_assert(pairs.pairs[N_TIDYING_PAIRS].guard == (IRExpr*)0x456);
+
    return sb_in;
 }
+
+#undef N_TIDYING_PAIRS
 
 
 /*------------------------------------------------------------*/
@@ -6742,7 +6984,7 @@ static IRAtom* gen_guarded_load_b ( MCEnv* mce, Int szB,
       di->guard = guard;
       /* Ideally the didn't-happen return value here would be
          all-zeroes (unknown-origin), so it'd be harmless if it got
-         used inadvertantly.  We slum it out with the IR-mandated
+         used inadvertently.  We slum it out with the IR-mandated
          default value (0b01 repeating, 0x55 etc) as that'll probably
          trump all legitimate otags via Max32, and it's pretty
          obviously bogus. */
@@ -7265,11 +7507,13 @@ static void do_origins_LoadG ( MCEnv* mce, IRLoadG* lg )
 {
    IRType loadedTy = Ity_INVALID;
    switch (lg->cvt) {
-      case ILGop_Ident32: loadedTy = Ity_I32; break;
-      case ILGop_16Uto32: loadedTy = Ity_I16; break;
-      case ILGop_16Sto32: loadedTy = Ity_I16; break;
-      case ILGop_8Uto32:  loadedTy = Ity_I8;  break;
-      case ILGop_8Sto32:  loadedTy = Ity_I8;  break;
+      case ILGop_IdentV128: loadedTy = Ity_V128; break;
+      case ILGop_Ident64:   loadedTy = Ity_I64;  break;
+      case ILGop_Ident32:   loadedTy = Ity_I32;  break;
+      case ILGop_16Uto32:   loadedTy = Ity_I16;  break;
+      case ILGop_16Sto32:   loadedTy = Ity_I16;  break;
+      case ILGop_8Uto32:    loadedTy = Ity_I8;   break;
+      case ILGop_8Sto32:    loadedTy = Ity_I8;   break;
       default: VG_(tool_panic)("schemeS.IRLoadG");
    }
    IRAtom* ori_alt
@@ -7404,6 +7648,62 @@ static void schemeS ( MCEnv* mce, IRStmt* st )
          ppIRStmt(st); 
          VG_(tool_panic)("memcheck:schemeS");
    }
+}
+
+
+/*------------------------------------------------------------*/
+/*--- Startup assertion checking                           ---*/
+/*------------------------------------------------------------*/
+
+void MC_(do_instrumentation_startup_checks)( void )
+{
+   /* Make a best-effort check to see that is_helperc_value_checkN_fail
+      is working as we expect. */
+
+#  define CHECK(_expected, _string) \
+      tl_assert((_expected) == is_helperc_value_checkN_fail(_string))
+
+   /* It should identify these 8, and no others, as targets. */
+   CHECK(True, "MC_(helperc_value_check8_fail_no_o)");
+   CHECK(True, "MC_(helperc_value_check4_fail_no_o)");
+   CHECK(True, "MC_(helperc_value_check0_fail_no_o)");
+   CHECK(True, "MC_(helperc_value_check1_fail_no_o)");
+   CHECK(True, "MC_(helperc_value_check8_fail_w_o)");
+   CHECK(True, "MC_(helperc_value_check0_fail_w_o)");
+   CHECK(True, "MC_(helperc_value_check1_fail_w_o)");
+   CHECK(True, "MC_(helperc_value_check4_fail_w_o)");
+
+   /* Ad-hoc selection of other strings gathered via a quick test. */
+   CHECK(False, "amd64g_dirtyhelper_CPUID_avx2");
+   CHECK(False, "amd64g_dirtyhelper_RDTSC");
+   CHECK(False, "MC_(helperc_b_load1)");
+   CHECK(False, "MC_(helperc_b_load2)");
+   CHECK(False, "MC_(helperc_b_load4)");
+   CHECK(False, "MC_(helperc_b_load8)");
+   CHECK(False, "MC_(helperc_b_load16)");
+   CHECK(False, "MC_(helperc_b_load32)");
+   CHECK(False, "MC_(helperc_b_store1)");
+   CHECK(False, "MC_(helperc_b_store2)");
+   CHECK(False, "MC_(helperc_b_store4)");
+   CHECK(False, "MC_(helperc_b_store8)");
+   CHECK(False, "MC_(helperc_b_store16)");
+   CHECK(False, "MC_(helperc_b_store32)");
+   CHECK(False, "MC_(helperc_LOADV8)");
+   CHECK(False, "MC_(helperc_LOADV16le)");
+   CHECK(False, "MC_(helperc_LOADV32le)");
+   CHECK(False, "MC_(helperc_LOADV64le)");
+   CHECK(False, "MC_(helperc_LOADV128le)");
+   CHECK(False, "MC_(helperc_LOADV256le)");
+   CHECK(False, "MC_(helperc_STOREV16le)");
+   CHECK(False, "MC_(helperc_STOREV32le)");
+   CHECK(False, "MC_(helperc_STOREV64le)");
+   CHECK(False, "MC_(helperc_STOREV8)");
+   CHECK(False, "track_die_mem_stack_8");
+   CHECK(False, "track_new_mem_stack_8_w_ECU");
+   CHECK(False, "MC_(helperc_MAKE_STACK_UNINIT_w_o)");
+   CHECK(False, "VG_(unknown_SP_update_w_ECU)");
+
+#  undef CHECK
 }
 
 

@@ -8,7 +8,7 @@
 /*
    This file is part of Valgrind.
 
-   Copyright (C) 2000-2013 Julian Seward
+   Copyright (C) 2000-2015 Julian Seward
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -103,6 +103,15 @@
    20420 STPNCPY
 */
 
+#if defined(VGO_solaris)
+/*
+   Detour functions in the libc and the runtime linker. If a function isn't
+   much optimized (and no overlap checking is necessary) then redir the
+   function only in the libc. This way we can keep stacktraces in the tests
+   consistent.
+*/
+#endif
+
 
 /* Figure out if [dst .. dst+dstlen-1] overlaps with
                  [src .. src+srclen-1].
@@ -145,7 +154,7 @@ __attribute__ ((__noreturn__))
 static inline void my_exit ( int x )
 {
 #  if defined(VGPV_arm_linux_android) || defined(VGPV_mips32_linux_android) \
-      || defined(VGPV_mips32_linux_android)
+      || defined(VGPV_arm64_linux_android)
    __asm__ __volatile__(".word 0xFFFFFFFF");
    while (1) {}
 #  elif defined(VGPV_x86_linux_android)
@@ -179,7 +188,7 @@ static inline void my_exit ( int x )
       const HChar* last = NULL; \
       while (True) { \
          if (*p == ch) last = p; \
-         if (*p == 0) return (HChar *)last;     \
+         if (*p == 0) return CONST_CAST(HChar *,last);    \
          p++; \
       } \
    }
@@ -210,6 +219,14 @@ static inline void my_exit ( int x )
  //STRRCHR(VG_Z_DYLD,          strrchr)
  //STRRCHR(VG_Z_DYLD,          rindex)
  STRRCHR(VG_Z_LIBC_SONAME, strrchr)
+# if DARWIN_VERS >= DARWIN_10_9
+  STRRCHR(libsystemZucZddylib, strrchr)
+# endif
+
+#elif defined(VGO_solaris)
+ STRRCHR(VG_Z_LIBC_SONAME,   strrchr)
+ STRRCHR(VG_Z_LIBC_SONAME,   rindex)
+ STRRCHR(VG_Z_LD_SO_1,       strrchr)
 
 #endif
 
@@ -223,7 +240,7 @@ static inline void my_exit ( int x )
       HChar  ch = (HChar)c ; \
       const HChar* p  = s;   \
       while (True) { \
-         if (*p == ch) return (HChar *)p; \
+         if (*p == ch) return CONST_CAST(HChar *,p);  \
          if (*p == 0) return NULL; \
          p++; \
       } \
@@ -236,7 +253,7 @@ static inline void my_exit ( int x )
  STRCHR(VG_Z_LIBC_SONAME,          __strchr_sse2)
  STRCHR(VG_Z_LIBC_SONAME,          __strchr_sse2_no_bsf)
  STRCHR(VG_Z_LIBC_SONAME,          index)
-# if !defined(VGP_x86_linux)
+# if !defined(VGP_x86_linux) && !defined(VGP_amd64_linux)
   STRCHR(VG_Z_LD_LINUX_SO_2,        strchr)
   STRCHR(VG_Z_LD_LINUX_SO_2,        index)
   STRCHR(VG_Z_LD_LINUX_X86_64_SO_2, strchr)
@@ -254,6 +271,18 @@ static inline void my_exit ( int x )
 # if DARWIN_VERS == DARWIN_10_9
   STRCHR(libsystemZuplatformZddylib, _platform_strchr)
 # endif
+# if DARWIN_VERS >= DARWIN_10_10
+  /* _platform_strchr$VARIANT$Generic */
+  STRCHR(libsystemZuplatformZddylib, _platform_strchr$VARIANT$Generic)
+  /* _platform_strchr$VARIANT$Haswell */
+  STRCHR(libsystemZuplatformZddylib, _platform_strchr$VARIANT$Haswell)
+# endif
+
+#elif defined(VGO_solaris)
+ STRCHR(VG_Z_LIBC_SONAME,          strchr)
+ STRCHR(VG_Z_LIBC_SONAME,          index)
+ STRCHR(VG_Z_LD_SO_1,              strchr)
+
 #endif
 
 
@@ -294,6 +323,10 @@ static inline void my_exit ( int x )
 #elif defined(VGO_darwin)
  //STRCAT(VG_Z_LIBC_SONAME, strcat)
 
+#elif defined(VGO_solaris)
+ STRCAT(VG_Z_LIBC_SONAME, strcat)
+ STRCAT(VG_Z_LD_SO_1,     strcat)
+
 #endif
 
 
@@ -333,6 +366,9 @@ static inline void my_exit ( int x )
 #elif defined(VGO_darwin)
  //STRNCAT(VG_Z_LIBC_SONAME, strncat)
  //STRNCAT(VG_Z_DYLD,        strncat)
+
+#elif defined(VGO_solaris)
+ STRNCAT(VG_Z_LIBC_SONAME, strncat)
 
 #endif
 
@@ -387,6 +423,9 @@ static inline void my_exit ( int x )
  //STRLCAT(VG_Z_DYLD,        strlcat)
  STRLCAT(VG_Z_LIBC_SONAME, strlcat)
 
+#elif defined(VGO_solaris)
+ STRLCAT(VG_Z_LIBC_SONAME, strlcat)
+
 #endif
 
 
@@ -411,6 +450,9 @@ static inline void my_exit ( int x )
 # if DARWIN_VERS == DARWIN_10_9
   STRNLEN(libsystemZucZddylib, strnlen)
 # endif
+
+#elif defined(VGO_solaris)
+ STRNLEN(VG_Z_LIBC_SONAME, strnlen)
 
 #endif
 
@@ -441,7 +483,8 @@ static inline void my_exit ( int x )
  STRLEN(VG_Z_LIBC_SONAME,          __strlen_sse42)
  STRLEN(VG_Z_LD_LINUX_SO_2,        strlen)
  STRLEN(VG_Z_LD_LINUX_X86_64_SO_2, strlen)
-# if defined(VGPV_arm_linux_android) || defined(VGPV_x86_linux_android) \
+# if defined(VGPV_arm_linux_android) \
+     || defined(VGPV_x86_linux_android) \
      || defined(VGPV_mips32_linux_android)
   STRLEN(NONE, __dl_strlen); /* in /system/bin/linker */
 # endif
@@ -453,9 +496,14 @@ static inline void my_exit ( int x )
 
 #elif defined(VGO_darwin)
  STRLEN(VG_Z_LIBC_SONAME, strlen)
-# if DARWIN_VERS == DARWIN_10_9
+# if DARWIN_VERS >= DARWIN_10_9
   STRLEN(libsystemZucZddylib, strlen)
 # endif
+
+#elif defined(VGO_solaris)
+ STRLEN(VG_Z_LIBC_SONAME,          strlen)
+ STRLEN(VG_Z_LD_SO_1,              strlen)
+
 #endif
 
 
@@ -499,6 +547,10 @@ static inline void my_exit ( int x )
   STRCPY(libsystemZucZddylib, strcpy)
 # endif
 
+#elif defined(VGO_solaris)
+ STRCPY(VG_Z_LIBC_SONAME, strcpy)
+ STRCPY(VG_Z_LD_SO_1,     strcpy)
+
 #endif
 
 
@@ -537,9 +589,13 @@ static inline void my_exit ( int x )
 
 #elif defined(VGO_darwin)
  STRNCPY(VG_Z_LIBC_SONAME, strncpy)
-# if DARWIN_VERS == DARWIN_10_9
+# if DARWIN_VERS >= DARWIN_10_9
   STRNCPY(libsystemZucZddylib, strncpy)
 # endif
+
+#elif defined(VGO_solaris)
+ STRNCPY(VG_Z_LIBC_SONAME, strncpy)
+ STRNCPY(VG_Z_LD_SO_1,     strncpy)
 
 #endif
 
@@ -558,6 +614,8 @@ static inline void my_exit ( int x )
       HChar* dst_orig = dst; \
       SizeT m = 0; \
       \
+      STRLCPY_CHECK_FOR_DSTSIZE_ZERO \
+      \
       while (m < n-1 && *src) { m++; *dst++ = *src++; } \
       /* m non-nul bytes have now been copied, and m <= n-1. */ \
       /* Check for overlap after copying; all n bytes of dst are relevant, */ \
@@ -575,17 +633,30 @@ static inline void my_exit ( int x )
 
 #if defined(VGPV_arm_linux_android) || defined(VGPV_x86_linux_android) \
     || defined(VGPV_mips32_linux_android)
+ #define STRLCPY_CHECK_FOR_DSTSIZE_ZERO
  STRLCPY(VG_Z_LIBC_SONAME, strlcpy);
 #endif
 
 #elif defined(VGO_freebsd)
+ #define STRLCPY_CHECK_FOR_DSTSIZE_ZERO
  STRLCPY(VG_Z_LD_ELF_SO_1, strlcpy)
  STRLCPY(VG_Z_LD_ELF32_SO_1, strlcpy)
  STRLCPY(VG_Z_LIBC_SONAME, strlcpy)
 
 #elif defined(VGO_darwin)
+ #define STRLCPY_CHECK_FOR_DSTSIZE_ZERO
  //STRLCPY(VG_Z_LIBC_SONAME, strlcpy)
  //STRLCPY(VG_Z_DYLD,        strlcpy)
+ STRLCPY(VG_Z_LIBC_SONAME, strlcpy)
+
+#elif defined(VGO_solaris)
+ /* special case for n == 0 which is undocumented but heavily used */
+ #define STRLCPY_CHECK_FOR_DSTSIZE_ZERO \
+    if (n == 0) { \
+       while (*src) src++; \
+       return src - src_orig; \
+    }
+
  STRLCPY(VG_Z_LIBC_SONAME, strlcpy)
 
 #endif
@@ -626,9 +697,12 @@ static inline void my_exit ( int x )
 
 #elif defined(VGO_darwin)
  STRNCMP(VG_Z_LIBC_SONAME,        strncmp)
-# if DARWIN_VERS == DARWIN_10_9
+# if DARWIN_VERS >= DARWIN_10_9
   STRNCMP(libsystemZuplatformZddylib, _platform_strncmp)
 # endif
+
+#elif defined(VGO_solaris)
+ STRNCMP(VG_Z_LIBC_SONAME, strncmp)
 
 #endif
 
@@ -657,8 +731,10 @@ static inline void my_exit ( int x )
    }
 
 #if defined(VGO_linux)
-# if !defined(VGPV_arm_linux_android) && !defined(VGPV_x86_linux_android) \
-     && !defined(VGPV_mips32_linux_android)
+# if !defined(VGPV_arm_linux_android) \
+     && !defined(VGPV_x86_linux_android) \
+     && !defined(VGPV_mips32_linux_android) \
+     && !defined(VGPV_arm64_linux_android)
   STRCASECMP(VG_Z_LIBC_SONAME, strcasecmp)
   STRCASECMP(VG_Z_LIBC_SONAME, __GI_strcasecmp)
 # endif
@@ -670,6 +746,9 @@ static inline void my_exit ( int x )
 
 #elif defined(VGO_darwin)
  //STRCASECMP(VG_Z_LIBC_SONAME, strcasecmp)
+
+#elif defined(VGO_solaris)
+ STRCASECMP(VG_Z_LIBC_SONAME, strcasecmp)
 
 #endif
 
@@ -700,8 +779,10 @@ static inline void my_exit ( int x )
    }
 
 #if defined(VGO_linux)
-# if !defined(VGPV_arm_linux_android) && !defined(VGPV_x86_linux_android) \
-     && !defined(VGPV_mips32_linux_android)
+# if !defined(VGPV_arm_linux_android) \
+     && !defined(VGPV_x86_linux_android) \
+     && !defined(VGPV_mips32_linux_android) \
+     && !defined(VGPV_arm64_linux_android)
   STRNCASECMP(VG_Z_LIBC_SONAME, strncasecmp)
   STRNCASECMP(VG_Z_LIBC_SONAME, __GI_strncasecmp)
 # endif
@@ -714,6 +795,9 @@ static inline void my_exit ( int x )
 #elif defined(VGO_darwin)
  //STRNCASECMP(VG_Z_LIBC_SONAME, strncasecmp)
  //STRNCASECMP(VG_Z_DYLD,        strncasecmp)
+
+#elif defined(VGO_solaris)
+ STRNCASECMP(VG_Z_LIBC_SONAME, strncasecmp)
 
 #endif
 
@@ -748,6 +832,8 @@ static inline void my_exit ( int x )
 
 #elif defined(VGO_darwin)
  //STRCASECMP_L(VG_Z_LIBC_SONAME, strcasecmp_l)
+
+#elif defined(VGO_solaris)
 
 #endif
 
@@ -785,6 +871,8 @@ static inline void my_exit ( int x )
 #elif defined(VGO_darwin)
  //STRNCASECMP_L(VG_Z_LIBC_SONAME, strncasecmp_l)
  //STRNCASECMP_L(VG_Z_DYLD,        strncasecmp_l)
+
+#elif defined(VGO_solaris)
 
 #endif
 
@@ -830,9 +918,13 @@ static inline void my_exit ( int x )
 
 #elif defined(VGO_darwin)
  STRCMP(VG_Z_LIBC_SONAME, strcmp)
-# if DARWIN_VERS == DARWIN_10_9
+# if DARWIN_VERS >= DARWIN_10_9
   STRCMP(libsystemZuplatformZddylib, _platform_strcmp)
 # endif
+
+#elif defined(VGO_solaris)
+ STRCMP(VG_Z_LIBC_SONAME,          strcmp)
+ STRCMP(VG_Z_LD_SO_1,              strcmp)
 
 #endif
 
@@ -847,9 +939,9 @@ static inline void my_exit ( int x )
    { \
       SizeT i; \
       UChar c0 = (UChar)c; \
-      UChar* p = (UChar*)s; \
+      const UChar* p = s; \
       for (i = 0; i < n; i++) \
-         if (p[i] == c0) return (void*)(&p[i]); \
+         if (p[i] == c0) return CONST_CAST(void *,&p[i]); \
       return NULL; \
    }
 
@@ -862,6 +954,16 @@ static inline void my_exit ( int x )
   MEMCHR(VG_Z_DYLD,                   memchr)
   MEMCHR(libsystemZuplatformZddylib, _platform_memchr)
 # endif
+# if DARWIN_VERS >= DARWIN_10_10
+  MEMCHR(VG_Z_DYLD,                   memchr)
+  /* _platform_memchr$VARIANT$Generic */
+  MEMCHR(libsystemZuplatformZddylib, _platform_memchr$VARIANT$Generic)
+  /* _platform_memchr$VARIANT$Haswell */
+  MEMCHR(libsystemZuplatformZddylib, _platform_memchr$VARIANT$Haswell)
+# endif
+
+#elif defined(VGO_solaris)
+ MEMCHR(VG_Z_LIBC_SONAME, memchr)
 
 #endif
 
@@ -876,9 +978,9 @@ static inline void my_exit ( int x )
    { \
       SizeT i; \
       UChar c0 = (UChar)c; \
-      UChar* p = (UChar*)s; \
+      const UChar* p = s; \
       for (i = 0; i < n; i++) \
-         if (p[n-1-i] == c0) return (void*)(&p[n-1-i]); \
+         if (p[n-1-i] == c0) return CONST_CAST(void *,&p[n-1-i]); \
       return NULL; \
    }
 
@@ -891,6 +993,8 @@ static inline void my_exit ( int x )
 #elif defined(VGO_darwin)
  //MEMRCHR(VG_Z_LIBC_SONAME, memrchr)
  //MEMRCHR(VG_Z_DYLD,        memrchr)
+
+#elif defined(VGO_solaris)
 
 #endif
 
@@ -1008,6 +1112,10 @@ static inline void my_exit ( int x )
  MEMCPY(VG_Z_LIBC_SONAME,  memcpyZDVARIANTZDsse3x) /* memcpy$VARIANT$sse3x */
  MEMCPY(VG_Z_LIBC_SONAME,  memcpyZDVARIANTZDsse42) /* memcpy$VARIANT$sse42 */
 
+#elif defined(VGO_solaris)
+ MEMCPY(VG_Z_LIBC_SONAME,  memcpy)
+ MEMCPY(VG_Z_LD_SO_1,      memcpy)
+
 #endif
 
 
@@ -1019,18 +1127,33 @@ static inline void my_exit ( int x )
    int VG_REPLACE_FUNCTION_EZU(20190,soname,fnname)       \
           ( const void *s1V, const void *s2V, SizeT n )  \
    { \
-      int res; \
-      UChar a0; \
-      UChar b0; \
-      const UChar* s1 = s1V; \
-      const UChar* s2 = s2V; \
+      const SizeT WS = sizeof(UWord); /* 8 or 4 */ \
+      const SizeT WM = WS - 1;        /* 7 or 3 */ \
+      Addr s1A = (Addr)s1V; \
+      Addr s2A = (Addr)s2V; \
+      \
+      if (((s1A | s2A) & WM) == 0) { \
+         /* Both areas are word aligned.  Skip over the */ \
+         /* equal prefix as fast as possible. */ \
+         while (n >= WS) { \
+            UWord w1 = *(UWord*)s1A; \
+            UWord w2 = *(UWord*)s2A; \
+            if (w1 != w2) break; \
+            s1A += WS; \
+            s2A += WS; \
+            n -= WS; \
+         } \
+      } \
+      \
+      const UChar* s1 = (const UChar*) s1A; \
+      const UChar* s2 = (const UChar*) s2A; \
       \
       while (n != 0) { \
-         a0 = s1[0]; \
-         b0 = s2[0]; \
+         UChar a0 = s1[0]; \
+         UChar b0 = s2[0]; \
          s1 += 1; \
          s2 += 1; \
-         res = ((int)a0) - ((int)b0); \
+         int res = ((int)a0) - ((int)b0); \
          if (res != 0) \
             return res; \
          n -= 1; \
@@ -1051,9 +1174,14 @@ static inline void my_exit ( int x )
  MEMCMP(VG_Z_LIBC_SONAME,  bcmp)
 
 #elif defined(VGO_darwin)
-# if DARWIN_VERS == DARWIN_10_9
+# if DARWIN_VERS >= DARWIN_10_9
   MEMCMP(libsystemZuplatformZddylib, _platform_memcmp)
 # endif
+
+#elif defined(VGO_solaris)
+ MEMCMP(VG_Z_LIBC_SONAME, memcmp)
+ MEMCMP(VG_Z_LIBC_SONAME, bcmp)
+ MEMCMP(VG_Z_LD_SO_1,     memcmp)
 
 #endif
 
@@ -1101,6 +1229,9 @@ static inline void my_exit ( int x )
 #elif defined(VGO_darwin)
  //STPCPY(VG_Z_LIBC_SONAME,          stpcpy)
  //STPCPY(VG_Z_DYLD,                 stpcpy)
+
+#elif defined(VGO_solaris)
+ STPCPY(VG_Z_LIBC_SONAME,          stpcpy)
 
 #endif
 
@@ -1152,6 +1283,11 @@ static inline void my_exit ( int x )
          c8 = (c8 << 32) | c8; \
          while ((a & 7) != 0 && n >= 1) \
             { *(UChar*)a = (UChar)c; a += 1; n -= 1; } \
+         while (n >= 32) \
+            { *(ULong*)a = c8; a += 8; n -= 8;   \
+              *(ULong*)a = c8; a += 8; n -= 8;   \
+              *(ULong*)a = c8; a += 8; n -= 8;   \
+              *(ULong*)a = c8; a += 8; n -= 8; } \
          while (n >= 8) \
             { *(ULong*)a = c8; a += 8; n -= 8; } \
          while (n >= 1) \
@@ -1164,6 +1300,11 @@ static inline void my_exit ( int x )
          c4 = (c4 << 16) | c4; \
          while ((a & 3) != 0 && n >= 1) \
             { *(UChar*)a = (UChar)c; a += 1; n -= 1; } \
+         while (n >= 16) \
+            { *(UInt*)a = c4; a += 4; n -= 4;   \
+              *(UInt*)a = c4; a += 4; n -= 4;   \
+              *(UInt*)a = c4; a += 4; n -= 4;   \
+              *(UInt*)a = c4; a += 4; n -= 4; } \
          while (n >= 4) \
             { *(UInt*)a = c4; a += 4; n -= 4; } \
          while (n >= 1) \
@@ -1185,6 +1326,9 @@ static inline void my_exit ( int x )
  //MEMSET(VG_Z_DYLD,        memset)
  MEMSET(VG_Z_LIBC_SONAME, memset)
 
+#elif defined(VGO_solaris)
+ MEMSET(VG_Z_LIBC_SONAME, memset)
+
 #endif
 
 
@@ -1195,6 +1339,10 @@ static inline void my_exit ( int x )
 #if defined(VGO_linux)
  MEMMOVE(VG_Z_LIBC_SONAME, memmove)
  MEMMOVE(VG_Z_LIBC_SONAME, __GI_memmove)
+ /* See bug #349828 Override for ld64.so.1 like memcpy, because for some
+    arches MEMCPY_OK_FOR_FORWARD_MEMMOVE is set, which might cause memmove
+    to call memcpy.  */
+ MEMMOVE(VG_Z_LD64_SO_1, memmove)
 
 #elif defined(VGO_freebsd)
  MEMMOVE(VG_Z_LD_ELF_SO_1, memmove)
@@ -1207,6 +1355,14 @@ static inline void my_exit ( int x )
 # endif
  MEMMOVE(VG_Z_LIBC_SONAME,  memmoveZDVARIANTZDsse3x) /* memmove$VARIANT$sse3x */
  MEMMOVE(VG_Z_LIBC_SONAME,  memmoveZDVARIANTZDsse42) /* memmove$VARIANT$sse42 */
+# if DARWIN_VERS >= DARWIN_10_9
+  /* _platform_memmove$VARIANT$Ivybridge */
+  MEMMOVE(libsystemZuplatformZddylib, ZuplatformZumemmoveZDVARIANTZDIvybridge)
+# endif
+
+#elif defined(VGO_solaris)
+ MEMMOVE(VG_Z_LIBC_SONAME, memmove)
+ MEMMOVE(VG_Z_LD_SO_1,     memmove)
 
 #endif
 
@@ -1245,6 +1401,9 @@ static inline void my_exit ( int x )
  //BCOPY(VG_Z_LIBC_SONAME, bcopy)
  //BCOPY(VG_Z_DYLD,        bcopy)
 
+#elif defined(VGO_darwin)
+ BCOPY(VG_Z_LIBC_SONAME, bcopy)
+
 #endif
 
 
@@ -1277,7 +1436,7 @@ static inline void my_exit ( int x )
       VALGRIND_PRINTF_BACKTRACE( \
          "*** memmove_chk: buffer overflow detected ***: " \
          "program terminated\n"); \
-     my_exit(127); \
+     my_exit(1); \
      /*NOTREACHED*/ \
      return NULL; \
    }
@@ -1286,6 +1445,8 @@ static inline void my_exit ( int x )
  GLIBC25___MEMMOVE_CHK(VG_Z_LIBC_SONAME, __memmove_chk)
 
 #elif defined(VGO_darwin)
+
+#elif defined(VGO_solaris)
 
 #endif
 
@@ -1299,11 +1460,11 @@ static inline void my_exit ( int x )
    char* VG_REPLACE_FUNCTION_EZU(20250,soname,fnname) \
             (const char* s, int c_in) \
    { \
-      UChar  c        = (UChar) c_in; \
-      UChar* char_ptr = (UChar *)s; \
+      HChar c = (HChar) c_in; \
+      const HChar* char_ptr = s; \
       while (1) { \
-         if (*char_ptr == 0) return (HChar *)char_ptr;   \
-         if (*char_ptr == c) return (HChar *)char_ptr;   \
+         if (*char_ptr == 0) return CONST_CAST(HChar *,char_ptr);  \
+         if (*char_ptr == c) return CONST_CAST(HChar *,char_ptr);  \
          char_ptr++; \
       } \
    }
@@ -1316,6 +1477,8 @@ static inline void my_exit ( int x )
 
 #elif defined(VGO_darwin)
 
+#elif defined(VGO_solaris)
+
 #endif
 
 
@@ -1323,15 +1486,15 @@ static inline void my_exit ( int x )
 
 /* Find the first occurrence of C in S.  */
 #define GLIBC232_RAWMEMCHR(soname, fnname) \
-   char* VG_REPLACE_FUNCTION_EZU(20260,soname,fnname) \
-            (const char* s, int c_in); \
-   char* VG_REPLACE_FUNCTION_EZU(20260,soname,fnname) \
-            (const char* s, int c_in) \
+   void* VG_REPLACE_FUNCTION_EZU(20260,soname,fnname) \
+            (const void* s, int c_in); \
+   void* VG_REPLACE_FUNCTION_EZU(20260,soname,fnname) \
+            (const void* s, int c_in) \
    { \
-      UChar  c        = (UChar) c_in; \
-      UChar* char_ptr = (UChar *)s; \
+      UChar c = (UChar) c_in; \
+      const UChar* char_ptr = s; \
       while (1) { \
-        if (*char_ptr == c) return (HChar *)char_ptr;   \
+         if (*char_ptr == c) return CONST_CAST(void *,char_ptr); \
          char_ptr++; \
       } \
    }
@@ -1341,6 +1504,8 @@ static inline void my_exit ( int x )
  GLIBC232_RAWMEMCHR(VG_Z_LIBC_SONAME, __GI___rawmemchr)
 
 #elif defined(VGO_darwin)
+
+#elif defined(VGO_solaris)
 
 #endif
 
@@ -1366,7 +1531,7 @@ static inline void my_exit ( int x )
       VALGRIND_PRINTF_BACKTRACE( \
          "*** strcpy_chk: buffer overflow detected ***: " \
          "program terminated\n"); \
-     my_exit(127); \
+     my_exit(1); \
      /*NOTREACHED*/ \
      return NULL; \
    }
@@ -1375,6 +1540,8 @@ static inline void my_exit ( int x )
  GLIBC25___STRCPY_CHK(VG_Z_LIBC_SONAME, __strcpy_chk)
 
 #elif defined(VGO_darwin)
+
+#elif defined(VGO_solaris)
 
 #endif
 
@@ -1399,7 +1566,7 @@ static inline void my_exit ( int x )
       VALGRIND_PRINTF_BACKTRACE( \
          "*** stpcpy_chk: buffer overflow detected ***: " \
          "program terminated\n"); \
-     my_exit(127); \
+     my_exit(1); \
      /*NOTREACHED*/ \
      return NULL; \
    }
@@ -1408,6 +1575,8 @@ static inline void my_exit ( int x )
  GLIBC25___STPCPY_CHK(VG_Z_LIBC_SONAME, __stpcpy_chk)
 
 #elif defined(VGO_darwin)
+
+#elif defined(VGO_solaris)
 
 #endif
 
@@ -1421,8 +1590,6 @@ static inline void my_exit ( int x )
    void* VG_REPLACE_FUNCTION_EZU(20290,soname,fnname) \
             ( void *dst, const void *src, SizeT len ) \
    { \
-      register HChar *d; \
-      register HChar *s; \
       SizeT len_saved = len; \
       \
       if (len == 0) \
@@ -1432,14 +1599,14 @@ static inline void my_exit ( int x )
          RECORD_OVERLAP_ERROR("mempcpy", dst, src, len); \
       \
       if ( dst > src ) { \
-         d = (char *)dst + len - 1; \
-         s = (char *)src + len - 1; \
+         register HChar *d = (char *)dst + len - 1; \
+         register const HChar *s = (const char *)src + len - 1; \
          while ( len-- ) { \
             *d-- = *s--; \
          } \
       } else if ( dst < src ) { \
-         d = (char *)dst; \
-         s = (char *)src; \
+         register HChar *d = dst; \
+         register const HChar *s = src; \
          while ( len-- ) { \
             *d++ = *s++; \
          } \
@@ -1449,12 +1616,15 @@ static inline void my_exit ( int x )
 
 #if defined(VGO_linux)
  GLIBC25_MEMPCPY(VG_Z_LIBC_SONAME, mempcpy)
+ GLIBC25_MEMPCPY(VG_Z_LIBC_SONAME, __GI_mempcpy)
  GLIBC25_MEMPCPY(VG_Z_LD_SO_1,     mempcpy) /* ld.so.1 */
  GLIBC25_MEMPCPY(VG_Z_LD_LINUX_SO_3, mempcpy) /* ld-linux.so.3 */
  GLIBC25_MEMPCPY(VG_Z_LD_LINUX_X86_64_SO_2, mempcpy) /* ld-linux-x86-64.so.2 */
 
 #elif defined(VGO_darwin)
  //GLIBC25_MEMPCPY(VG_Z_LIBC_SONAME, mempcpy)
+
+#elif defined(VGO_solaris)
 
 #endif
 
@@ -1496,7 +1666,7 @@ static inline void my_exit ( int x )
       VALGRIND_PRINTF_BACKTRACE( \
          "*** memcpy_chk: buffer overflow detected ***: " \
          "program terminated\n"); \
-     my_exit(127); \
+     my_exit(1); \
      /*NOTREACHED*/ \
      return NULL; \
    }
@@ -1505,6 +1675,8 @@ static inline void my_exit ( int x )
  GLIBC26___MEMCPY_CHK(VG_Z_LIBC_SONAME, __memcpy_chk)
 
 #elif defined(VGO_darwin)
+
+#elif defined(VGO_solaris)
 
 #endif
 
@@ -1525,7 +1697,7 @@ static inline void my_exit ( int x )
       while (n[nlen]) nlen++; \
       \
       /* if n is the empty string, match immediately. */ \
-      if (nlen == 0) return (HChar *)h;                  \
+      if (nlen == 0) return CONST_CAST(HChar *,h);         \
       \
       /* assert(nlen >= 1); */ \
       HChar n0 = n[0]; \
@@ -1542,7 +1714,7 @@ static inline void my_exit ( int x )
          } \
          /* assert(i >= 0 && i <= nlen); */ \
          if (i == nlen) \
-           return (HChar *)h;                   \
+           return CONST_CAST(HChar *,h);          \
          \
          h++; \
       } \
@@ -1557,6 +1729,9 @@ static inline void my_exit ( int x )
  STRSTR(VG_Z_LIBC_SONAME,          strstr)
 
 #elif defined(VGO_darwin)
+
+#elif defined(VGO_solaris)
+ STRSTR(VG_Z_LIBC_SONAME,          strstr)
 
 #endif
 
@@ -1587,7 +1762,7 @@ static inline void my_exit ( int x )
             break; \
          for (i = 0; i < nacc; i++) { \
             if (sc == accept[i]) \
-              return (HChar *)s; \
+              return CONST_CAST(HChar *,s);       \
          } \
          s++; \
       } \
@@ -1602,6 +1777,9 @@ static inline void my_exit ( int x )
  STRPBRK(VG_Z_LIBC_SONAME,          strpbrk)
 
 #elif defined(VGO_darwin)
+
+#elif defined(VGO_solaris)
+ STRPBRK(VG_Z_LIBC_SONAME,          strpbrk)
 
 #endif
 
@@ -1648,6 +1826,9 @@ static inline void my_exit ( int x )
  STRCSPN(VG_Z_LIBC_SONAME,          strcspn)
 
 #elif defined(VGO_darwin)
+
+#elif defined(VGO_solaris)
+ STRCSPN(VG_Z_LIBC_SONAME,          strcspn)
 
 #endif
 
@@ -1696,6 +1877,9 @@ static inline void my_exit ( int x )
 
 #elif defined(VGO_darwin)
 
+#elif defined(VGO_solaris)
+ STRSPN(VG_Z_LIBC_SONAME,          strspn)
+
 #endif
 
 
@@ -1716,7 +1900,7 @@ static inline void my_exit ( int x )
       while (n[nlen]) nlen++; \
       \
       /* if n is the empty string, match immediately. */ \
-      if (nlen == 0) return (HChar *)h;                  \
+      if (nlen == 0) return CONST_CAST(HChar *,h);       \
       \
       /* assert(nlen >= 1); */ \
       UChar n0 = tolower(n[0]);                 \
@@ -1733,15 +1917,17 @@ static inline void my_exit ( int x )
          } \
          /* assert(i >= 0 && i <= nlen); */ \
          if (i == nlen) \
-           return (HChar *)h;                   \
+           return CONST_CAST(HChar *,h);    \
          \
          h++; \
       } \
    }
 
 #if defined(VGO_linux)
-# if !defined(VGPV_arm_linux_android) && !defined(VGPV_x86_linux_android) \
-     && !defined(VGPV_mips32_linux_android)
+# if !defined(VGPV_arm_linux_android) \
+     && !defined(VGPV_x86_linux_android) \
+     && !defined(VGPV_mips32_linux_android) \
+     && !defined(VGPV_arm64_linux_android)
   STRCASESTR(VG_Z_LIBC_SONAME,      strcasestr)
 # endif
 
@@ -1749,6 +1935,9 @@ static inline void my_exit ( int x )
   STRCASESTR(VG_Z_LIBC_SONAME,      strcasestr)
 
 #elif defined(VGO_darwin)
+
+#elif defined(VGO_solaris)
+  STRCASESTR(VG_Z_LIBC_SONAME,      strcasestr)
 
 #endif
 
@@ -1778,6 +1967,9 @@ static inline void my_exit ( int x )
  WCSLEN(VG_Z_LIBC_SONAME,          wcslen)
 
 #elif defined(VGO_darwin)
+
+#elif defined(VGO_solaris)
+ WCSLEN(VG_Z_LIBC_SONAME,          wcslen)
 
 #endif
 
@@ -1856,9 +2048,9 @@ static inline void my_exit ( int x )
    Int* VG_REPLACE_FUNCTION_EZU(20400,soname,fnname) ( const Int* s, Int c ); \
    Int* VG_REPLACE_FUNCTION_EZU(20400,soname,fnname) ( const Int* s, Int c ) \
    { \
-      Int* p  = (Int*)s; \
+      const Int* p = s; \
       while (True) { \
-         if (*p == c) return p; \
+         if (*p == c) return CONST_CAST(Int *,p);  \
          if (*p == 0) return NULL; \
          p++; \
       } \
@@ -1877,11 +2069,11 @@ static inline void my_exit ( int x )
    Int* VG_REPLACE_FUNCTION_EZU(20410,soname,fnname)( const Int* s, Int c ); \
    Int* VG_REPLACE_FUNCTION_EZU(20410,soname,fnname)( const Int* s, Int c ) \
    { \
-      Int* p    = (Int*) s; \
-      Int* last = NULL; \
+      const Int* p = s; \
+      const Int* last = NULL; \
       while (True) { \
          if (*p == c) last = p; \
-         if (*p == 0) return last; \
+         if (*p == 0) return CONST_CAST(Int *,last);  \
          p++; \
       } \
    }

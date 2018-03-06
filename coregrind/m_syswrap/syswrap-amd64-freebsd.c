@@ -194,7 +194,7 @@ PRE(sys_thr_new)
 
    if (debug)
       VG_(printf)("clone child has SETTLS: tls at %#lx\n", (Addr)tp.tls_base);
-   ctst->arch.vex.guest_FS_ZERO = (UWord)tp.tls_base;
+   ctst->arch.vex.guest_FS_CONST = (UWord)tp.tls_base;
    tp.tls_base = 0;	/* Don't have the kernel do it too */
 
    /* start the thread with everything blocked */
@@ -676,7 +676,7 @@ PRE(sys_sysarch)
       /* On FreeBSD, the syscall loads the %gs selector for us, so do it now. */
       tst = VG_(get_ThreadState)(tid);
       p = (void**)ARG2;
-      tst->arch.vex.guest_FS_ZERO = (UWord)*p;
+      tst->arch.vex.guest_FS_CONST = (UWord)*p;
       /* "do" the syscall ourselves; the kernel never sees it */
       SET_STATUS_Success2((ULong)*p, tst->arch.vex.guest_RDX );
 
@@ -688,21 +688,25 @@ PRE(sys_sysarch)
 
       /* "do" the syscall ourselves; the kernel never sees it */
       tst = VG_(get_ThreadState)(tid);
-      SET_STATUS_Success2( tst->arch.vex.guest_FS_ZERO, tst->arch.vex.guest_RDX );
+      SET_STATUS_Success2( tst->arch.vex.guest_FS_CONST, tst->arch.vex.guest_RDX );
       POST_MEM_WRITE( ARG2, sizeof(void *) );
       break;
    case VKI_AMD64_GET_XFPUSTATE:
       {
-	UChar fpuState[160];
+	UChar fpuState[416]; // XXX See below
 	vki_amd64_get_xfpustate_t *xfs = (vki_amd64_get_xfpustate_t *)ARG2;
       
-      	PRINT("sys_amd64_get_xfpustate ( %#lx, %d )", (long unsigned int)xfs->addr, xfs->len);
+	PRINT("sys_amd64_get_xfpustate ( %#lx, %d )",
+	      (long unsigned int)xfs->addr, xfs->len);
       	tst = VG_(get_ThreadState)(tid);
 
-	if (xfs->len <= sizeof(fpuState)) {
-      		amd64g_dirtyhelper_FXSAVE_ALL_EXCEPT_XMM(
-		    (VexGuestAMD64State *)&tst->arch.vex,
-		    (HWord)fpuState);
+	// The fpuState is actually only 160 bytes. However, the documented
+	// VexGuest interface returns 416 bytes. So rather than using an
+	// undocumented interface, we get the whole 416 bytes and copy at most
+	// 160.
+	if (xfs->len <= 160) {\
+		LibVEX_GuestAMD64_fxsave((VexGuestAMD64State *)&tst->arch.vex,
+		                         (HWord)fpuState);
 		VG_(memcpy)(xfs->addr, fpuState, xfs->len);
       		POST_MEM_WRITE( xfs->addr, xfs->len );
 		SET_STATUS_Success ( 0 );

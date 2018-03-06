@@ -1,7 +1,7 @@
 
 /*--------------------------------------------------------------------*/
-/*--- Handlers for syscalls on minor variants of Linux kernels.    ---*/
-/*---                                     syswrap-linux-variants.c ---*/
+/*--- Handlers for syscalls on minor variants of FreeBSD kernels.  ---*/
+/*---                                   syswrap-freebsd-variants.c ---*/
 /*--------------------------------------------------------------------*/
 
 /*
@@ -29,10 +29,10 @@
    The GNU General Public License is contained in the file COPYING.
 */
 
-/* The files syswrap-generic.c, syswrap-linux.c, syswrap-x86-linux.c,
-   syswrap-amd64-linux.c and syswrap-ppc32-linux.c, and associated
-   vki*.h header files, constitute Valgrind's model of how a vanilla
-   Linux kernel behaves with respect to syscalls.
+/* The files syswrap-generic.c, syswrap-freebsd.c, syswrap-x86-freebsd.c,
+   syswrap-amd64-freebsd.c, and associated vki*.h header files, constitute
+   Valgrind's model of how a vanilla FreeBSD kernel behaves with respect to
+   syscalls.
 
    On a few occasions, it is useful to run with a kernel that has some
    (minor) extensions to the vanilla model, either due to running on a
@@ -68,28 +68,8 @@
 #include "priv_types_n_macros.h"
 #include "priv_syswrap-freebsd.h"
 
-
-#if 0	/* think about ylock syscall etc */
-/* ---------------------------------------------------------------
-   BProc wrappers
-   ------------------------------------------------------------ */
-
-/* Return 0 means hand to kernel, non-0 means fail w/ that value. */
-Int ML_(linux_variant_PRE_sys_bproc)( UWord arg1, UWord arg2,
-                                      UWord arg3, UWord arg4,
-                                      UWord arg5, UWord arg6 )
-{
-   return 0;
-}
-
-void ML_(linux_variant_POST_sys_bproc)( UWord arg1, UWord arg2,
-                                        UWord arg3, UWord arg4,
-                                        UWord arg5, UWord arg6 )
-{
-}
-#endif
-
+// XXX Empty
 
 /*--------------------------------------------------------------------*/
-/*--- end                                 syswrap-linux-variants.c ---*/
+/*--- end                               syswrap-freebsd-variants.c ---*/
 /*--------------------------------------------------------------------*/

@@ -1,3 +1,4 @@
+/* -*- mode: C; c-basic-offset: 3; -*- */
 
 /*--------------------------------------------------------------------*/
 /*--- MemCheck: Maintain bitmaps of memory, tracking the           ---*/
@@ -9,7 +10,7 @@
    This file is part of MemCheck, a heavyweight Valgrind tool for
    detecting memory errors.
 
-   Copyright (C) 2000-2013 Julian Seward 
+   Copyright (C) 2000-2015 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -50,6 +51,10 @@
 #include "mc_include.h"
 #include "memcheck.h"   /* for client requests */
 
+
+/* Set to 1 to enable handwritten assembly helpers on targets for
+   which it is supported. */
+#define ENABLE_ASSEMBLY_HELPERS 1
 
 /* Set to 1 to do a little more sanity checking */
 #define VG_DEBUG_MEMORY 0
@@ -138,11 +143,11 @@ static void ocache_sarp_Clear_Origins ( Addr, UWord ); /* fwds */
 
    On 64-bit machines it's more complicated.  If we followed the same basic
    scheme we'd have a four-level table which would require too many memory
-   accesses.  So instead the top-level map table has 2^19 entries (indexed
-   using bits 16..34 of the address);  this covers the bottom 32GB.  Any
-   accesses above 32GB are handled with a slow, sparse auxiliary table.
+   accesses.  So instead the top-level map table has 2^20 entries (indexed
+   using bits 16..35 of the address);  this covers the bottom 64GB.  Any
+   accesses above 64GB are handled with a slow, sparse auxiliary table.
    Valgrind's address space manager tries very hard to keep things below
-   this 32GB barrier so that performance doesn't suffer too much.
+   this 64GB barrier so that performance doesn't suffer too much.
 
    Note that this file has a lot of different functions for reading and
    writing shadow memory.  Only a couple are strictly necessary (eg.
@@ -250,8 +255,11 @@ static void ocache_sarp_Clear_Origins ( Addr, UWord ); /* fwds */
 #define VA_BITS16_UNDEFINED   0x5555   // 01_01_01_01b x 2
 #define VA_BITS16_DEFINED     0xaaaa   // 10_10_10_10b x 2
 
+// These represent 128 bits of memory.
+#define VA_BITS32_UNDEFINED   0x55555555  // 01_01_01_01b x 4
 
-#define SM_CHUNKS             16384
+
+#define SM_CHUNKS             16384    // Each SM covers 64k of memory.
 #define SM_OFF(aaa)           (((aaa) & 0xffff) >> 2)
 #define SM_OFF_16(aaa)        (((aaa) & 0xffff) >> 3)
 
@@ -578,7 +586,6 @@ static AuxMapEnt* find_or_alloc_in_auxmap ( Addr a )
    a &= ~(Addr)0xFFFF;
 
    nyu = (AuxMapEnt*) VG_(OSetGen_AllocNode)( auxmap_L2, sizeof(AuxMapEnt) );
-   tl_assert(nyu);
    nyu->base = a;
    nyu->sm   = &sm_distinguished[SM_DIST_NOACCESS];
    VG_(OSetGen_Insert)( auxmap_L2, nyu );
@@ -591,6 +598,12 @@ static AuxMapEnt* find_or_alloc_in_auxmap ( Addr a )
 
 // In all these, 'low' means it's definitely in the main primary map,
 // 'high' means it's definitely in the auxiliary table.
+
+static INLINE UWord get_primary_map_low_offset ( Addr a )
+{
+  UWord pm_off = a >> 16;
+  return pm_off;
+}
 
 static INLINE SecMap** get_secmap_low_ptr ( Addr a )
 {
@@ -966,11 +979,9 @@ static void gcSecVBitTable(void)
    VG_(OSetGen_Destroy)(secVBitTable);
    secVBitTable = secVBitTable2;
 
-   if (VG_(clo_verbosity) > 1) {
-      HChar percbuf[7];
-      VG_(percentify)(n_survivors, n_nodes, 1, 6, percbuf);
-      VG_(message)(Vg_DebugMsg, "memcheck GC: %d nodes, %d survivors (%s)\n",
-                   n_nodes, n_survivors, percbuf);
+   if (VG_(clo_verbosity) > 1 && n_nodes != 0) {
+      VG_(message)(Vg_DebugMsg, "memcheck GC: %d nodes, %d survivors (%.1f%%)\n",
+                   n_nodes, n_survivors, n_survivors * 100.0 / n_nodes);
    }
 
    // Increase table size if necessary.
@@ -1089,10 +1100,9 @@ static void init_gIgnoredAddressRanges ( void )
       return;
    gIgnoredAddressRanges = VG_(newRangeMap)( VG_(malloc), "mc.igIAR.1",
                                              VG_(free), IAR_NotIgnored );
-   tl_assert(gIgnoredAddressRanges != NULL);
 }
 
-INLINE Bool MC_(in_ignored_range) ( Addr a )
+Bool MC_(in_ignored_range) ( Addr a )
 {
    if (LIKELY(gIgnoredAddressRanges == NULL))
       return False;
@@ -1111,9 +1121,32 @@ INLINE Bool MC_(in_ignored_range) ( Addr a )
    /*NOTREACHED*/
 }
 
-/* Parse two Addr separated by a dash, or fail. */
+Bool MC_(in_ignored_range_below_sp) ( Addr sp, Addr a, UInt szB )
+{
+   if (LIKELY(!MC_(clo_ignore_range_below_sp)))
+       return False;
+   tl_assert(szB >= 1 && szB <= 32);
+   tl_assert(MC_(clo_ignore_range_below_sp__first_offset)
+             > MC_(clo_ignore_range_below_sp__last_offset));
+   Addr range_lo = sp - MC_(clo_ignore_range_below_sp__first_offset);
+   Addr range_hi = sp - MC_(clo_ignore_range_below_sp__last_offset);
+   if (range_lo >= range_hi) {
+      /* Bizarre.  We have a wraparound situation.  What should we do? */
+      return False; // Play safe
+   } else {
+      /* This is the expected case. */
+      if (range_lo <= a && a + szB - 1 <= range_hi)
+         return True;
+      else
+         return False;
+   }
+   /*NOTREACHED*/
+   tl_assert(0);
+}
 
-static Bool parse_range ( const HChar** ppc, Addr* result1, Addr* result2 )
+/* Parse two Addrs (in hex) separated by a dash, or fail. */
+
+static Bool parse_Addr_pair ( const HChar** ppc, Addr* result1, Addr* result2 )
 {
    Bool ok = VG_(parse_Addr) (ppc, result1);
    if (!ok)
@@ -1122,6 +1155,23 @@ static Bool parse_range ( const HChar** ppc, Addr* result1, Addr* result2 )
       return False;
    (*ppc)++;
    ok = VG_(parse_Addr) (ppc, result2);
+   if (!ok)
+      return False;
+   return True;
+}
+
+/* Parse two UInts (32 bit unsigned, in decimal) separated by a dash,
+   or fail. */
+
+static Bool parse_UInt_pair ( const HChar** ppc, UInt* result1, UInt* result2 )
+{
+   Bool ok = VG_(parse_UInt) (ppc, result1);
+   if (!ok)
+      return False;
+   if (**ppc != '-')
+      return False;
+   (*ppc)++;
+   ok = VG_(parse_UInt) (ppc, result2);
    if (!ok)
       return False;
    return True;
@@ -1138,7 +1188,7 @@ static Bool parse_ignore_ranges ( const HChar* str0 )
    while (1) {
       Addr start = ~(Addr)0;
       Addr end   = (Addr)0;
-      Bool ok    = parse_range(ppc, &start, &end);
+      Bool ok    = parse_Addr_pair(ppc, &start, &end);
       if (!ok)
          return False;
       if (start > end)
@@ -1176,17 +1226,17 @@ static Bool modify_ignore_ranges ( Bool addRange, Addr start, Addr len )
                    (void*)start, (void*)(start+len-1));
    }
    if (verbose) {
-      VG_(dmsg)("memcheck:   now have %ld ranges:\n",
+      VG_(dmsg)("memcheck:   now have %u ranges:\n",
                 VG_(sizeRangeMap)(gIgnoredAddressRanges));
-      Word i;
+      UInt i;
       for (i = 0; i < VG_(sizeRangeMap)(gIgnoredAddressRanges); i++) {
          UWord val     = IAR_INVALID;
          UWord key_min = ~(UWord)0;
          UWord key_max = (UWord)0;
          VG_(indexRangeMap)( &key_min, &key_max, &val,
                              gIgnoredAddressRanges, i );
-         VG_(dmsg)("memcheck:      [%ld]  %016llx-%016llx  %s\n",
-                   i, (ULong)key_min, (ULong)key_max, showIARKind(val));
+         VG_(dmsg)("memcheck:      [%u]  %016lx-%016lx  %s\n",
+                   i, key_min, key_max, showIARKind(val));
       }
    }
    return True;
@@ -1235,7 +1285,7 @@ void mc_LOADV_128_or_256_slow ( /*OUT*/ULong* res,
       ULong pessim64   = V_BITS64_DEFINED;
       UWord long_index = byte_offset_w(szL, bigendian, j);
       for (i = 8-1; i >= 0; i--) {
-         PROF_EVENT(29, "mc_LOADV_128_or_256_slow(loop)");
+         PROF_EVENT(MCPE_LOADV_128_OR_256_SLOW_LOOP);
          ai = a + 8*long_index + byte_offset_w(8, bigendian, i);
          ok = get_vbits8(ai, &vbits8);
          vbits64 <<= 8;
@@ -1311,9 +1361,12 @@ void mc_LOADV_128_or_256_slow ( /*OUT*/ULong* res,
 
 static
 __attribute__((noinline))
+__attribute__((used))
+VG_REGPARM(3) /* make sure we're using a fixed calling convention, since
+                 this function may get called from hand written assembly. */
 ULong mc_LOADVn_slow ( Addr a, SizeT nBits, Bool bigendian )
 {
-   PROF_EVENT(30, "mc_LOADVn_slow");
+   PROF_EVENT(MCPE_LOADVN_SLOW);
 
    /* ------------ BEGIN semi-fast cases ------------ */
    /* These deal quickly-ish with the common auxiliary primary map
@@ -1367,7 +1420,7 @@ ULong mc_LOADVn_slow ( Addr a, SizeT nBits, Bool bigendian )
       info can be gleaned from pessim64) but is used as a
       cross-check. */
    for (i = szB-1; i >= 0; i--) {
-      PROF_EVENT(31, "mc_LOADVn_slow(loop)");
+      PROF_EVENT(MCPE_LOADVN_SLOW_LOOP);
       ai = a + byte_offset_w(szB, bigendian, i);
       ok = get_vbits8(ai, &vbits8);
       vbits64 <<= 8; 
@@ -1465,7 +1518,7 @@ void mc_STOREVn_slow ( Addr a, SizeT nBits, ULong vbytes, Bool bigendian )
    Addr  ai;
    Bool  ok;
 
-   PROF_EVENT(35, "mc_STOREVn_slow");
+   PROF_EVENT(MCPE_STOREVN_SLOW);
 
    /* ------------ BEGIN semi-fast cases ------------ */
    /* These deal quickly-ish with the common auxiliary primary map
@@ -1527,7 +1580,7 @@ void mc_STOREVn_slow ( Addr a, SizeT nBits, ULong vbytes, Bool bigendian )
    /* Dump vbytes in memory, iterating from least to most significant
       byte.  At the same time establish addressibility of the location. */
    for (i = 0; i < szB; i++) {
-      PROF_EVENT(36, "mc_STOREVn_slow(loop)");
+      PROF_EVENT(MCPE_STOREVN_SLOW_LOOP);
       ai     = a + byte_offset_w(szB, bigendian, i);
       vbits8 = vbytes & 0xff;
       ok     = set_vbits8(ai, vbits8);
@@ -1556,7 +1609,7 @@ static void set_address_range_perms ( Addr a, SizeT lenT, UWord vabits16,
    SecMap** sm_ptr;
    SecMap*  example_dsm;
 
-   PROF_EVENT(150, "set_address_range_perms");
+   PROF_EVENT(MCPE_SET_ADDRESS_RANGE_PERMS);
 
    /* Check the V+A bits make sense. */
    tl_assert(VA_BITS16_NOACCESS  == vabits16 ||
@@ -1634,19 +1687,19 @@ static void set_address_range_perms ( Addr a, SizeT lenT, UWord vabits16,
    len_to_next_secmap = aNext - a;
    if ( lenT <= len_to_next_secmap ) {
       // Range entirely within one sec-map.  Covers almost all cases.
-      PROF_EVENT(151, "set_address_range_perms-single-secmap");
+      PROF_EVENT(MCPE_SET_ADDRESS_RANGE_PERMS_SINGLE_SECMAP);
       lenA = lenT;
       lenB = 0;
    } else if (is_start_of_sm(a)) {
       // Range spans at least one whole sec-map, and starts at the beginning
       // of a sec-map; skip to Part 2.
-      PROF_EVENT(152, "set_address_range_perms-startof-secmap");
+      PROF_EVENT(MCPE_SET_ADDRESS_RANGE_PERMS_STARTOF_SECMAP);
       lenA = 0;
       lenB = lenT;
       goto part2;
    } else {
       // Range spans two or more sec-maps, first one is partial.
-      PROF_EVENT(153, "set_address_range_perms-multiple-secmaps");
+      PROF_EVENT(MCPE_SET_ADDRESS_RANGE_PERMS_MULTIPLE_SECMAPS);
       lenA = len_to_next_secmap;
       lenB = lenT - lenA;
    }
@@ -1663,11 +1716,11 @@ static void set_address_range_perms ( Addr a, SizeT lenT, UWord vabits16,
    if (is_distinguished_sm(*sm_ptr)) {
       if (*sm_ptr == example_dsm) {
          // Sec-map already has the V+A bits that we want, so skip.
-         PROF_EVENT(154, "set_address_range_perms-dist-sm1-quick");
+         PROF_EVENT(MCPE_SET_ADDRESS_RANGE_PERMS_DIST_SM1_QUICK);
          a    = aNext;
          lenA = 0;
       } else {
-         PROF_EVENT(155, "set_address_range_perms-dist-sm1");
+         PROF_EVENT(MCPE_SET_ADDRESS_RANGE_PERMS_DIST_SM1);
          *sm_ptr = copy_for_writing(*sm_ptr);
       }
    }
@@ -1677,7 +1730,7 @@ static void set_address_range_perms ( Addr a, SizeT lenT, UWord vabits16,
    while (True) {
       if (VG_IS_8_ALIGNED(a)) break;
       if (lenA < 1)           break;
-      PROF_EVENT(156, "set_address_range_perms-loop1a");
+      PROF_EVENT(MCPE_SET_ADDRESS_RANGE_PERMS_LOOP1A);
       sm_off = SM_OFF(a);
       insert_vabits2_into_vabits8( a, vabits2, &(sm->vabits8[sm_off]) );
       a    += 1;
@@ -1686,7 +1739,7 @@ static void set_address_range_perms ( Addr a, SizeT lenT, UWord vabits16,
    // 8-aligned, 8 byte steps
    while (True) {
       if (lenA < 8) break;
-      PROF_EVENT(157, "set_address_range_perms-loop8a");
+      PROF_EVENT(MCPE_SET_ADDRESS_RANGE_PERMS_LOOP8A);
       sm_off16 = SM_OFF_16(a);
       ((UShort*)(sm->vabits8))[sm_off16] = vabits16;
       a    += 8;
@@ -1695,7 +1748,7 @@ static void set_address_range_perms ( Addr a, SizeT lenT, UWord vabits16,
    // 1 byte steps
    while (True) {
       if (lenA < 1) break;
-      PROF_EVENT(158, "set_address_range_perms-loop1b");
+      PROF_EVENT(MCPE_SET_ADDRESS_RANGE_PERMS_LOOP1B);
       sm_off = SM_OFF(a);
       insert_vabits2_into_vabits8( a, vabits2, &(sm->vabits8[sm_off]) );
       a    += 1;
@@ -1716,10 +1769,10 @@ static void set_address_range_perms ( Addr a, SizeT lenT, UWord vabits16,
    while (True) {
       if (lenB < SM_SIZE) break;
       tl_assert(is_start_of_sm(a));
-      PROF_EVENT(159, "set_address_range_perms-loop64K");
+      PROF_EVENT(MCPE_SET_ADDRESS_RANGE_PERMS_LOOP64K);
       sm_ptr = get_secmap_ptr(a);
       if (!is_distinguished_sm(*sm_ptr)) {
-         PROF_EVENT(160, "set_address_range_perms-loop64K-free-dist-sm");
+         PROF_EVENT(MCPE_SET_ADDRESS_RANGE_PERMS_LOOP64K_FREE_DIST_SM);
          // Free the non-distinguished sec-map that we're replacing.  This
          // case happens moderately often, enough to be worthwhile.
          SysRes sres = VG_(am_munmap_valgrind)((Addr)*sm_ptr, sizeof(SecMap));
@@ -1747,10 +1800,10 @@ static void set_address_range_perms ( Addr a, SizeT lenT, UWord vabits16,
    if (is_distinguished_sm(*sm_ptr)) {
       if (*sm_ptr == example_dsm) {
          // Sec-map already has the V+A bits that we want, so stop.
-         PROF_EVENT(161, "set_address_range_perms-dist-sm2-quick");
+         PROF_EVENT(MCPE_SET_ADDRESS_RANGE_PERMS_DIST_SM2_QUICK);
          return;
       } else {
-         PROF_EVENT(162, "set_address_range_perms-dist-sm2");
+         PROF_EVENT(MCPE_SET_ADDRESS_RANGE_PERMS_DIST_SM2);
          *sm_ptr = copy_for_writing(*sm_ptr);
       }
    }
@@ -1759,7 +1812,7 @@ static void set_address_range_perms ( Addr a, SizeT lenT, UWord vabits16,
    // 8-aligned, 8 byte steps
    while (True) {
       if (lenB < 8) break;
-      PROF_EVENT(163, "set_address_range_perms-loop8b");
+      PROF_EVENT(MCPE_SET_ADDRESS_RANGE_PERMS_LOOP8B);
       sm_off16 = SM_OFF_16(a);
       ((UShort*)(sm->vabits8))[sm_off16] = vabits16;
       a    += 8;
@@ -1768,7 +1821,7 @@ static void set_address_range_perms ( Addr a, SizeT lenT, UWord vabits16,
    // 1 byte steps
    while (True) {
       if (lenB < 1) return;
-      PROF_EVENT(164, "set_address_range_perms-loop1c");
+      PROF_EVENT(MCPE_SET_ADDRESS_RANGE_PERMS_LOOP1C);
       sm_off = SM_OFF(a);
       insert_vabits2_into_vabits8( a, vabits2, &(sm->vabits8[sm_off]) );
       a    += 1;
@@ -1781,7 +1834,7 @@ static void set_address_range_perms ( Addr a, SizeT lenT, UWord vabits16,
 
 void MC_(make_mem_noaccess) ( Addr a, SizeT len )
 {
-   PROF_EVENT(40, "MC_(make_mem_noaccess)");
+   PROF_EVENT(MCPE_MAKE_MEM_NOACCESS);
    DEBUG("MC_(make_mem_noaccess)(%p, %lu)\n", a, len);
    set_address_range_perms ( a, len, VA_BITS16_NOACCESS, SM_DIST_NOACCESS );
    if (UNLIKELY( MC_(clo_mc_level) == 3 ))
@@ -1790,14 +1843,14 @@ void MC_(make_mem_noaccess) ( Addr a, SizeT len )
 
 static void make_mem_undefined ( Addr a, SizeT len )
 {
-   PROF_EVENT(41, "make_mem_undefined");
+   PROF_EVENT(MCPE_MAKE_MEM_UNDEFINED);
    DEBUG("make_mem_undefined(%p, %lu)\n", a, len);
    set_address_range_perms ( a, len, VA_BITS16_UNDEFINED, SM_DIST_UNDEFINED );
 }
 
 void MC_(make_mem_undefined_w_otag) ( Addr a, SizeT len, UInt otag )
 {
-   PROF_EVENT(43, "MC_(make_mem_undefined)");
+   PROF_EVENT(MCPE_MAKE_MEM_UNDEFINED_W_OTAG);
    DEBUG("MC_(make_mem_undefined)(%p, %lu)\n", a, len);
    set_address_range_perms ( a, len, VA_BITS16_UNDEFINED, SM_DIST_UNDEFINED );
    if (UNLIKELY( MC_(clo_mc_level) == 3 ))
@@ -1834,11 +1887,17 @@ void mc_new_mem_w_tid_no_ECU  ( Addr a, SizeT len, ThreadId tid )
 
 void MC_(make_mem_defined) ( Addr a, SizeT len )
 {
-   PROF_EVENT(42, "MC_(make_mem_defined)");
+   PROF_EVENT(MCPE_MAKE_MEM_DEFINED);
    DEBUG("MC_(make_mem_defined)(%p, %lu)\n", a, len);
    set_address_range_perms ( a, len, VA_BITS16_DEFINED, SM_DIST_DEFINED );
    if (UNLIKELY( MC_(clo_mc_level) == 3 ))
       ocache_sarp_Clear_Origins ( a, len );
+}
+
+__attribute__((unused))
+static void make_mem_defined_w_tid ( Addr a, SizeT len, ThreadId tid )
+{
+   MC_(make_mem_defined)(a, len);
 }
 
 /* For each byte in [a,a+len), if the byte is addressable, make it be
@@ -1888,7 +1947,7 @@ void MC_(copy_address_range_state) ( Addr src, Addr dst, SizeT len )
    Bool  aligned, nooverlap;
 
    DEBUG("MC_(copy_address_range_state)\n");
-   PROF_EVENT(50, "MC_(copy_address_range_state)");
+   PROF_EVENT(MCPE_COPY_ADDRESS_RANGE_STATE);
 
    if (len == 0 || src == dst)
       return;
@@ -1938,7 +1997,7 @@ void MC_(copy_address_range_state) ( Addr src, Addr dst, SizeT len )
       /* We have to do things the slow way */
       if (src < dst) {
          for (i = 0, j = len-1; i < len; i++, j--) {
-            PROF_EVENT(51, "MC_(copy_address_range_state)(loop)");
+            PROF_EVENT(MCPE_COPY_ADDRESS_RANGE_STATE_LOOP1);
             vabits2 = get_vabits2( src+j );
             set_vabits2( dst+j, vabits2 );
             if (VA_BITS2_PARTDEFINED == vabits2) {
@@ -1949,7 +2008,7 @@ void MC_(copy_address_range_state) ( Addr src, Addr dst, SizeT len )
 
       if (src > dst) {
          for (i = 0; i < len; i++) {
-            PROF_EVENT(52, "MC_(copy_address_range_state)(loop)");
+            PROF_EVENT(MCPE_COPY_ADDRESS_RANGE_STATE_LOOP2);
             vabits2 = get_vabits2( src+i );
             set_vabits2( dst+i, vabits2 );
             if (VA_BITS2_PARTDEFINED == vabits2) {
@@ -2261,7 +2320,7 @@ void MC_(copy_address_range_state) ( Addr src, Addr dst, SizeT len )
    * Some obscure uses of x86/amd64 byte registers can cause lossage
      or confusion of origins.  %AH .. %DH are treated as different
      from, and unrelated to, their parent registers, %EAX .. %EDX.
-     So some wierd sequences like
+     So some weird sequences like
 
         movb undefined-value, %AH
         movb defined-value, %AL
@@ -2414,7 +2473,6 @@ static void init_ocacheL2 ( void )
       = VG_(OSetGen_Create)( offsetof(OCacheLine,tag), 
                              NULL, /* fast cmp */
                              ocacheL2_malloc, "mc.ioL2", ocacheL2_free);
-   tl_assert(ocacheL2);
    stats__ocacheL2_n_nodes = 0;
 }
 
@@ -2450,7 +2508,6 @@ static void ocacheL2_add_line ( OCacheLine* line )
    OCacheLine* copy;
    tl_assert(is_valid_oc_tag(line->tag));
    copy = VG_(OSetGen_AllocNode)( ocacheL2, sizeof(OCacheLine) );
-   tl_assert(copy);
    *copy = *line;
    stats__ocacheL2_refs++;
    VG_(OSetGen_Insert)( ocacheL2, copy );
@@ -2599,7 +2656,7 @@ static INLINE void set_aligned_word64_Origin_to_undef ( Addr a, UInt otag )
 
 static INLINE void make_aligned_word32_undefined ( Addr a )
 {
-   PROF_EVENT(300, "make_aligned_word32_undefined");
+  PROF_EVENT(MCPE_MAKE_ALIGNED_WORD32_UNDEFINED);
 
 #ifndef PERF_FAST_STACK2
    make_mem_undefined(a, 4);
@@ -2609,7 +2666,7 @@ static INLINE void make_aligned_word32_undefined ( Addr a )
       SecMap* sm;
 
       if (UNLIKELY(a > MAX_PRIMARY_ADDRESS)) {
-         PROF_EVENT(301, "make_aligned_word32_undefined-slow1");
+         PROF_EVENT(MCPE_MAKE_ALIGNED_WORD32_UNDEFINED_SLOW);
          make_mem_undefined(a, 4);
          return;
       }
@@ -2642,7 +2699,7 @@ void make_aligned_word32_undefined_w_otag ( Addr a, UInt otag )
 static INLINE
 void make_aligned_word32_noaccess ( Addr a )
 {
-   PROF_EVENT(310, "make_aligned_word32_noaccess");
+   PROF_EVENT(MCPE_MAKE_ALIGNED_WORD32_NOACCESS);
 
 #ifndef PERF_FAST_STACK2
    MC_(make_mem_noaccess)(a, 4);
@@ -2652,7 +2709,7 @@ void make_aligned_word32_noaccess ( Addr a )
       SecMap* sm;
 
       if (UNLIKELY(a > MAX_PRIMARY_ADDRESS)) {
-         PROF_EVENT(311, "make_aligned_word32_noaccess-slow1");
+         PROF_EVENT(MCPE_MAKE_ALIGNED_WORD32_NOACCESS_SLOW);
          MC_(make_mem_noaccess)(a, 4);
          return;
       }
@@ -2683,7 +2740,7 @@ void make_aligned_word32_noaccess ( Addr a )
 
 static INLINE void make_aligned_word64_undefined ( Addr a )
 {
-   PROF_EVENT(320, "make_aligned_word64_undefined");
+   PROF_EVENT(MCPE_MAKE_ALIGNED_WORD64_UNDEFINED);
 
 #ifndef PERF_FAST_STACK2
    make_mem_undefined(a, 8);
@@ -2693,7 +2750,7 @@ static INLINE void make_aligned_word64_undefined ( Addr a )
       SecMap* sm;
 
       if (UNLIKELY(a > MAX_PRIMARY_ADDRESS)) {
-         PROF_EVENT(321, "make_aligned_word64_undefined-slow1");
+         PROF_EVENT(MCPE_MAKE_ALIGNED_WORD64_UNDEFINED_SLOW);
          make_mem_undefined(a, 8);
          return;
       }
@@ -2727,7 +2784,7 @@ void make_aligned_word64_undefined_w_otag ( Addr a, UInt otag )
 static INLINE
 void make_aligned_word64_noaccess ( Addr a )
 {
-   PROF_EVENT(330, "make_aligned_word64_noaccess");
+   PROF_EVENT(MCPE_MAKE_ALIGNED_WORD64_NOACCESS);
 
 #ifndef PERF_FAST_STACK2
    MC_(make_mem_noaccess)(a, 8);
@@ -2737,7 +2794,7 @@ void make_aligned_word64_noaccess ( Addr a )
       SecMap* sm;
 
       if (UNLIKELY(a > MAX_PRIMARY_ADDRESS)) {
-         PROF_EVENT(331, "make_aligned_word64_noaccess-slow1");
+         PROF_EVENT(MCPE_MAKE_ALIGNED_WORD64_NOACCESS_SLOW);
          MC_(make_mem_noaccess)(a, 8);
          return;
       }
@@ -2779,7 +2836,7 @@ MAYBE_USED
 static void VG_REGPARM(2) mc_new_mem_stack_4_w_ECU(Addr new_SP, UInt ecu)
 {
    UInt otag = ecu | MC_OKIND_STACK;
-   PROF_EVENT(110, "new_mem_stack_4");
+   PROF_EVENT(MCPE_NEW_MEM_STACK_4);
    if (VG_IS_4_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       make_aligned_word32_undefined_w_otag ( -VG_STACK_REDZONE_SZB + new_SP, otag );
    } else {
@@ -2790,7 +2847,7 @@ static void VG_REGPARM(2) mc_new_mem_stack_4_w_ECU(Addr new_SP, UInt ecu)
 MAYBE_USED
 static void VG_REGPARM(1) mc_new_mem_stack_4(Addr new_SP)
 {
-   PROF_EVENT(110, "new_mem_stack_4");
+   PROF_EVENT(MCPE_NEW_MEM_STACK_4);
    if (VG_IS_4_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       make_aligned_word32_undefined ( -VG_STACK_REDZONE_SZB + new_SP );
    } else {
@@ -2801,7 +2858,7 @@ static void VG_REGPARM(1) mc_new_mem_stack_4(Addr new_SP)
 MAYBE_USED
 static void VG_REGPARM(1) mc_die_mem_stack_4(Addr new_SP)
 {
-   PROF_EVENT(120, "die_mem_stack_4");
+   PROF_EVENT(MCPE_DIE_MEM_STACK_4);
    if (VG_IS_4_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       make_aligned_word32_noaccess ( -VG_STACK_REDZONE_SZB + new_SP-4 );
    } else {
@@ -2815,7 +2872,7 @@ MAYBE_USED
 static void VG_REGPARM(2) mc_new_mem_stack_8_w_ECU(Addr new_SP, UInt ecu)
 {
    UInt otag = ecu | MC_OKIND_STACK;
-   PROF_EVENT(111, "new_mem_stack_8");
+   PROF_EVENT(MCPE_NEW_MEM_STACK_8);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       make_aligned_word64_undefined_w_otag ( -VG_STACK_REDZONE_SZB + new_SP, otag );
    } else if (VG_IS_4_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
@@ -2829,7 +2886,7 @@ static void VG_REGPARM(2) mc_new_mem_stack_8_w_ECU(Addr new_SP, UInt ecu)
 MAYBE_USED
 static void VG_REGPARM(1) mc_new_mem_stack_8(Addr new_SP)
 {
-   PROF_EVENT(111, "new_mem_stack_8");
+   PROF_EVENT(MCPE_NEW_MEM_STACK_8);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       make_aligned_word64_undefined ( -VG_STACK_REDZONE_SZB + new_SP );
    } else if (VG_IS_4_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
@@ -2843,7 +2900,7 @@ static void VG_REGPARM(1) mc_new_mem_stack_8(Addr new_SP)
 MAYBE_USED
 static void VG_REGPARM(1) mc_die_mem_stack_8(Addr new_SP)
 {
-   PROF_EVENT(121, "die_mem_stack_8");
+   PROF_EVENT(MCPE_DIE_MEM_STACK_8);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       make_aligned_word64_noaccess ( -VG_STACK_REDZONE_SZB + new_SP-8 );
    } else if (VG_IS_4_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
@@ -2860,7 +2917,7 @@ MAYBE_USED
 static void VG_REGPARM(2) mc_new_mem_stack_12_w_ECU(Addr new_SP, UInt ecu)
 {
    UInt otag = ecu | MC_OKIND_STACK;
-   PROF_EVENT(112, "new_mem_stack_12");
+   PROF_EVENT(MCPE_NEW_MEM_STACK_12);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       make_aligned_word64_undefined_w_otag ( -VG_STACK_REDZONE_SZB + new_SP  , otag );
       make_aligned_word32_undefined_w_otag ( -VG_STACK_REDZONE_SZB + new_SP+8, otag );
@@ -2878,7 +2935,7 @@ static void VG_REGPARM(2) mc_new_mem_stack_12_w_ECU(Addr new_SP, UInt ecu)
 MAYBE_USED
 static void VG_REGPARM(1) mc_new_mem_stack_12(Addr new_SP)
 {
-   PROF_EVENT(112, "new_mem_stack_12");
+   PROF_EVENT(MCPE_NEW_MEM_STACK_12);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       make_aligned_word64_undefined ( -VG_STACK_REDZONE_SZB + new_SP );
       make_aligned_word32_undefined ( -VG_STACK_REDZONE_SZB + new_SP+8 );
@@ -2896,7 +2953,7 @@ static void VG_REGPARM(1) mc_new_mem_stack_12(Addr new_SP)
 MAYBE_USED
 static void VG_REGPARM(1) mc_die_mem_stack_12(Addr new_SP)
 {
-   PROF_EVENT(122, "die_mem_stack_12");
+   PROF_EVENT(MCPE_DIE_MEM_STACK_12);
    /* Note the -12 in the test */
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP-12 )) {
       /* We have 8-alignment at -12, hence ok to do 8 at -12 and 4 at
@@ -2920,7 +2977,7 @@ MAYBE_USED
 static void VG_REGPARM(2) mc_new_mem_stack_16_w_ECU(Addr new_SP, UInt ecu)
 {
    UInt otag = ecu | MC_OKIND_STACK;
-   PROF_EVENT(113, "new_mem_stack_16");
+   PROF_EVENT(MCPE_NEW_MEM_STACK_16);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       /* Have 8-alignment at +0, hence do 8 at +0 and 8 at +8. */
       make_aligned_word64_undefined_w_otag ( -VG_STACK_REDZONE_SZB + new_SP  , otag );
@@ -2939,7 +2996,7 @@ static void VG_REGPARM(2) mc_new_mem_stack_16_w_ECU(Addr new_SP, UInt ecu)
 MAYBE_USED
 static void VG_REGPARM(1) mc_new_mem_stack_16(Addr new_SP)
 {
-   PROF_EVENT(113, "new_mem_stack_16");
+   PROF_EVENT(MCPE_NEW_MEM_STACK_16);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       /* Have 8-alignment at +0, hence do 8 at +0 and 8 at +8. */
       make_aligned_word64_undefined ( -VG_STACK_REDZONE_SZB + new_SP );
@@ -2958,7 +3015,7 @@ static void VG_REGPARM(1) mc_new_mem_stack_16(Addr new_SP)
 MAYBE_USED
 static void VG_REGPARM(1) mc_die_mem_stack_16(Addr new_SP)
 {
-   PROF_EVENT(123, "die_mem_stack_16");
+   PROF_EVENT(MCPE_DIE_MEM_STACK_16);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       /* Have 8-alignment at +0, hence do 8 at -16 and 8 at -8. */
       make_aligned_word64_noaccess ( -VG_STACK_REDZONE_SZB + new_SP-16 );
@@ -2979,7 +3036,7 @@ MAYBE_USED
 static void VG_REGPARM(2) mc_new_mem_stack_32_w_ECU(Addr new_SP, UInt ecu)
 {
    UInt otag = ecu | MC_OKIND_STACK;
-   PROF_EVENT(114, "new_mem_stack_32");
+   PROF_EVENT(MCPE_NEW_MEM_STACK_32);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       /* Straightforward */
       make_aligned_word64_undefined_w_otag ( -VG_STACK_REDZONE_SZB + new_SP   , otag );
@@ -3002,7 +3059,7 @@ static void VG_REGPARM(2) mc_new_mem_stack_32_w_ECU(Addr new_SP, UInt ecu)
 MAYBE_USED
 static void VG_REGPARM(1) mc_new_mem_stack_32(Addr new_SP)
 {
-   PROF_EVENT(114, "new_mem_stack_32");
+   PROF_EVENT(MCPE_NEW_MEM_STACK_32);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       /* Straightforward */
       make_aligned_word64_undefined ( -VG_STACK_REDZONE_SZB + new_SP );
@@ -3025,7 +3082,7 @@ static void VG_REGPARM(1) mc_new_mem_stack_32(Addr new_SP)
 MAYBE_USED
 static void VG_REGPARM(1) mc_die_mem_stack_32(Addr new_SP)
 {
-   PROF_EVENT(124, "die_mem_stack_32");
+   PROF_EVENT(MCPE_DIE_MEM_STACK_32);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       /* Straightforward */
       make_aligned_word64_noaccess ( -VG_STACK_REDZONE_SZB + new_SP-32 );
@@ -3051,7 +3108,7 @@ MAYBE_USED
 static void VG_REGPARM(2) mc_new_mem_stack_112_w_ECU(Addr new_SP, UInt ecu)
 {
    UInt otag = ecu | MC_OKIND_STACK;
-   PROF_EVENT(115, "new_mem_stack_112");
+   PROF_EVENT(MCPE_NEW_MEM_STACK_112);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       make_aligned_word64_undefined_w_otag ( -VG_STACK_REDZONE_SZB + new_SP   , otag );
       make_aligned_word64_undefined_w_otag ( -VG_STACK_REDZONE_SZB + new_SP+8 , otag );
@@ -3075,7 +3132,7 @@ static void VG_REGPARM(2) mc_new_mem_stack_112_w_ECU(Addr new_SP, UInt ecu)
 MAYBE_USED
 static void VG_REGPARM(1) mc_new_mem_stack_112(Addr new_SP)
 {
-   PROF_EVENT(115, "new_mem_stack_112");
+   PROF_EVENT(MCPE_NEW_MEM_STACK_112);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       make_aligned_word64_undefined ( -VG_STACK_REDZONE_SZB + new_SP );
       make_aligned_word64_undefined ( -VG_STACK_REDZONE_SZB + new_SP+8 );
@@ -3099,7 +3156,7 @@ static void VG_REGPARM(1) mc_new_mem_stack_112(Addr new_SP)
 MAYBE_USED
 static void VG_REGPARM(1) mc_die_mem_stack_112(Addr new_SP)
 {
-   PROF_EVENT(125, "die_mem_stack_112");
+   PROF_EVENT(MCPE_DIE_MEM_STACK_112);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       make_aligned_word64_noaccess ( -VG_STACK_REDZONE_SZB + new_SP-112);
       make_aligned_word64_noaccess ( -VG_STACK_REDZONE_SZB + new_SP-104);
@@ -3126,7 +3183,7 @@ MAYBE_USED
 static void VG_REGPARM(2) mc_new_mem_stack_128_w_ECU(Addr new_SP, UInt ecu)
 {
    UInt otag = ecu | MC_OKIND_STACK;
-   PROF_EVENT(116, "new_mem_stack_128");
+   PROF_EVENT(MCPE_NEW_MEM_STACK_128);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       make_aligned_word64_undefined_w_otag ( -VG_STACK_REDZONE_SZB + new_SP   , otag );
       make_aligned_word64_undefined_w_otag ( -VG_STACK_REDZONE_SZB + new_SP+8 , otag );
@@ -3152,7 +3209,7 @@ static void VG_REGPARM(2) mc_new_mem_stack_128_w_ECU(Addr new_SP, UInt ecu)
 MAYBE_USED
 static void VG_REGPARM(1) mc_new_mem_stack_128(Addr new_SP)
 {
-   PROF_EVENT(116, "new_mem_stack_128");
+   PROF_EVENT(MCPE_NEW_MEM_STACK_128);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       make_aligned_word64_undefined ( -VG_STACK_REDZONE_SZB + new_SP );
       make_aligned_word64_undefined ( -VG_STACK_REDZONE_SZB + new_SP+8 );
@@ -3178,7 +3235,7 @@ static void VG_REGPARM(1) mc_new_mem_stack_128(Addr new_SP)
 MAYBE_USED
 static void VG_REGPARM(1) mc_die_mem_stack_128(Addr new_SP)
 {
-   PROF_EVENT(126, "die_mem_stack_128");
+   PROF_EVENT(MCPE_DIE_MEM_STACK_128);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       make_aligned_word64_noaccess ( -VG_STACK_REDZONE_SZB + new_SP-128);
       make_aligned_word64_noaccess ( -VG_STACK_REDZONE_SZB + new_SP-120);
@@ -3207,7 +3264,7 @@ MAYBE_USED
 static void VG_REGPARM(2) mc_new_mem_stack_144_w_ECU(Addr new_SP, UInt ecu)
 {
    UInt otag = ecu | MC_OKIND_STACK;
-   PROF_EVENT(117, "new_mem_stack_144");
+   PROF_EVENT(MCPE_NEW_MEM_STACK_144);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       make_aligned_word64_undefined_w_otag ( -VG_STACK_REDZONE_SZB + new_SP,     otag );
       make_aligned_word64_undefined_w_otag ( -VG_STACK_REDZONE_SZB + new_SP+8,   otag );
@@ -3235,7 +3292,7 @@ static void VG_REGPARM(2) mc_new_mem_stack_144_w_ECU(Addr new_SP, UInt ecu)
 MAYBE_USED
 static void VG_REGPARM(1) mc_new_mem_stack_144(Addr new_SP)
 {
-   PROF_EVENT(117, "new_mem_stack_144");
+   PROF_EVENT(MCPE_NEW_MEM_STACK_144);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       make_aligned_word64_undefined ( -VG_STACK_REDZONE_SZB + new_SP );
       make_aligned_word64_undefined ( -VG_STACK_REDZONE_SZB + new_SP+8 );
@@ -3263,7 +3320,7 @@ static void VG_REGPARM(1) mc_new_mem_stack_144(Addr new_SP)
 MAYBE_USED
 static void VG_REGPARM(1) mc_die_mem_stack_144(Addr new_SP)
 {
-   PROF_EVENT(127, "die_mem_stack_144");
+   PROF_EVENT(MCPE_DIE_MEM_STACK_144);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       make_aligned_word64_noaccess ( -VG_STACK_REDZONE_SZB + new_SP-144);
       make_aligned_word64_noaccess ( -VG_STACK_REDZONE_SZB + new_SP-136);
@@ -3294,7 +3351,7 @@ MAYBE_USED
 static void VG_REGPARM(2) mc_new_mem_stack_160_w_ECU(Addr new_SP, UInt ecu)
 {
    UInt otag = ecu | MC_OKIND_STACK;
-   PROF_EVENT(118, "new_mem_stack_160");
+   PROF_EVENT(MCPE_NEW_MEM_STACK_160);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       make_aligned_word64_undefined_w_otag ( -VG_STACK_REDZONE_SZB + new_SP,     otag );
       make_aligned_word64_undefined_w_otag ( -VG_STACK_REDZONE_SZB + new_SP+8,   otag );
@@ -3324,7 +3381,7 @@ static void VG_REGPARM(2) mc_new_mem_stack_160_w_ECU(Addr new_SP, UInt ecu)
 MAYBE_USED
 static void VG_REGPARM(1) mc_new_mem_stack_160(Addr new_SP)
 {
-   PROF_EVENT(118, "new_mem_stack_160");
+   PROF_EVENT(MCPE_NEW_MEM_STACK_160);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       make_aligned_word64_undefined ( -VG_STACK_REDZONE_SZB + new_SP );
       make_aligned_word64_undefined ( -VG_STACK_REDZONE_SZB + new_SP+8 );
@@ -3354,7 +3411,7 @@ static void VG_REGPARM(1) mc_new_mem_stack_160(Addr new_SP)
 MAYBE_USED
 static void VG_REGPARM(1) mc_die_mem_stack_160(Addr new_SP)
 {
-   PROF_EVENT(128, "die_mem_stack_160");
+   PROF_EVENT(MCPE_DIE_MEM_STACK_160);
    if (VG_IS_8_ALIGNED( -VG_STACK_REDZONE_SZB + new_SP )) {
       make_aligned_word64_noaccess ( -VG_STACK_REDZONE_SZB + new_SP-160);
       make_aligned_word64_noaccess ( -VG_STACK_REDZONE_SZB + new_SP-152);
@@ -3386,19 +3443,19 @@ static void VG_REGPARM(1) mc_die_mem_stack_160(Addr new_SP)
 static void mc_new_mem_stack_w_ECU ( Addr a, SizeT len, UInt ecu )
 {
    UInt otag = ecu | MC_OKIND_STACK;
-   PROF_EVENT(115, "new_mem_stack_w_otag");
+   PROF_EVENT(MCPE_NEW_MEM_STACK);
    MC_(make_mem_undefined_w_otag) ( -VG_STACK_REDZONE_SZB + a, len, otag );
 }
 
 static void mc_new_mem_stack ( Addr a, SizeT len )
 {
-   PROF_EVENT(115, "new_mem_stack");
+   PROF_EVENT(MCPE_NEW_MEM_STACK);
    make_mem_undefined ( -VG_STACK_REDZONE_SZB + a, len );
 }
 
 static void mc_die_mem_stack ( Addr a, SizeT len )
 {
-   PROF_EVENT(125, "die_mem_stack");
+   PROF_EVENT(MCPE_DIE_MEM_STACK);
    MC_(make_mem_noaccess) ( -VG_STACK_REDZONE_SZB + a, len );
 }
 
@@ -3507,57 +3564,48 @@ static inline UInt convert_nia_to_ecu ( Addr nia )
 }
 
 
-/* Note that this serves both the origin-tracking and
-   no-origin-tracking modes.  We assume that calls to it are
-   sufficiently infrequent that it isn't worth specialising for the
-   with/without origin-tracking cases. */
-void MC_(helperc_MAKE_STACK_UNINIT) ( Addr base, UWord len, Addr nia )
+/* This marks the stack as addressible but undefined, after a call or
+   return for a target that has an ABI defined stack redzone.  It
+   happens quite a lot and needs to be fast.  This is the version for
+   origin tracking.  The non-origin-tracking version is below. */
+VG_REGPARM(3)
+void MC_(helperc_MAKE_STACK_UNINIT_w_o) ( Addr base, UWord len, Addr nia )
 {
-   UInt otag;
-   tl_assert(sizeof(UWord) == sizeof(SizeT));
+   PROF_EVENT(MCPE_MAKE_STACK_UNINIT_W_O);
    if (0)
-      VG_(printf)("helperc_MAKE_STACK_UNINIT (%#lx,%lu,nia=%#lx)\n",
+      VG_(printf)("helperc_MAKE_STACK_UNINIT_w_o (%#lx,%lu,nia=%#lx)\n",
                   base, len, nia );
 
-   if (UNLIKELY( MC_(clo_mc_level) == 3 )) {
-      UInt ecu = convert_nia_to_ecu ( nia );
-      tl_assert(VG_(is_plausible_ECU)(ecu));
-      otag = ecu | MC_OKIND_STACK;
-   } else {
-      tl_assert(nia == 0);
-      otag = 0;
-   }
+   UInt ecu = convert_nia_to_ecu ( nia );
+   tl_assert(VG_(is_plausible_ECU)(ecu));
 
-#  if 0
-   /* Really slow version */
-   MC_(make_mem_undefined)(base, len, otag);
-#  endif
+   UInt otag = ecu | MC_OKIND_STACK;
 
 #  if 0
    /* Slow(ish) version, which is fairly easily seen to be correct.
    */
    if (LIKELY( VG_IS_8_ALIGNED(base) && len==128 )) {
-      make_aligned_word64_undefined(base +   0, otag);
-      make_aligned_word64_undefined(base +   8, otag);
-      make_aligned_word64_undefined(base +  16, otag);
-      make_aligned_word64_undefined(base +  24, otag);
+      make_aligned_word64_undefined_w_otag(base +   0, otag);
+      make_aligned_word64_undefined_w_otag(base +   8, otag);
+      make_aligned_word64_undefined_w_otag(base +  16, otag);
+      make_aligned_word64_undefined_w_otag(base +  24, otag);
 
-      make_aligned_word64_undefined(base +  32, otag);
-      make_aligned_word64_undefined(base +  40, otag);
-      make_aligned_word64_undefined(base +  48, otag);
-      make_aligned_word64_undefined(base +  56, otag);
+      make_aligned_word64_undefined_w_otag(base +  32, otag);
+      make_aligned_word64_undefined_w_otag(base +  40, otag);
+      make_aligned_word64_undefined_w_otag(base +  48, otag);
+      make_aligned_word64_undefined_w_otag(base +  56, otag);
 
-      make_aligned_word64_undefined(base +  64, otag);
-      make_aligned_word64_undefined(base +  72, otag);
-      make_aligned_word64_undefined(base +  80, otag);
-      make_aligned_word64_undefined(base +  88, otag);
+      make_aligned_word64_undefined_w_otag(base +  64, otag);
+      make_aligned_word64_undefined_w_otag(base +  72, otag);
+      make_aligned_word64_undefined_w_otag(base +  80, otag);
+      make_aligned_word64_undefined_w_otag(base +  88, otag);
 
-      make_aligned_word64_undefined(base +  96, otag);
-      make_aligned_word64_undefined(base + 104, otag);
-      make_aligned_word64_undefined(base + 112, otag);
-      make_aligned_word64_undefined(base + 120, otag);
+      make_aligned_word64_undefined_w_otag(base +  96, otag);
+      make_aligned_word64_undefined_w_otag(base + 104, otag);
+      make_aligned_word64_undefined_w_otag(base + 112, otag);
+      make_aligned_word64_undefined_w_otag(base + 120, otag);
    } else {
-      MC_(make_mem_undefined)(base, len, otag);
+      MC_(make_mem_undefined_w_otag)(base, len, otag);
    }
 #  endif 
 
@@ -3569,21 +3617,20 @@ void MC_(helperc_MAKE_STACK_UNINIT) ( Addr base, UWord len, Addr nia )
       directly into the vabits array.  (If the sm was distinguished, this
       will make a copy and then write to it.)
    */
-
    if (LIKELY( len == 128 && VG_IS_8_ALIGNED(base) )) {
       /* Now we know the address range is suitably sized and aligned. */
       UWord a_lo = (UWord)(base);
       UWord a_hi = (UWord)(base + 128 - 1);
       tl_assert(a_lo < a_hi);             // paranoia: detect overflow
-      if (a_hi <= MAX_PRIMARY_ADDRESS) {
-         // Now we know the entire range is within the main primary map.
-         SecMap* sm    = get_secmap_for_writing_low(a_lo);
-         SecMap* sm_hi = get_secmap_for_writing_low(a_hi);
-         /* Now we know that the entire address range falls within a
-            single secondary map, and that that secondary 'lives' in
-            the main primary map. */
-         if (LIKELY(sm == sm_hi)) {
-            // Finally, we know that the range is entirely within one secmap.
+      if (LIKELY(a_hi <= MAX_PRIMARY_ADDRESS)) {
+         /* Now we know the entire range is within the main primary map. */
+         UWord pm_off_lo = get_primary_map_low_offset(a_lo);
+         UWord pm_off_hi = get_primary_map_low_offset(a_hi);
+         if (LIKELY(pm_off_lo == pm_off_hi)) {
+           /* Now we know that the entire address range falls within a
+              single secondary map, and that that secondary 'lives' in
+              the main primary map. */
+            SecMap* sm    = get_secmap_for_writing_low(a_lo);
             UWord   v_off = SM_OFF(a_lo);
             UShort* p     = (UShort*)(&sm->vabits8[v_off]);
             p[ 0] = VA_BITS16_UNDEFINED;
@@ -3602,24 +3649,22 @@ void MC_(helperc_MAKE_STACK_UNINIT) ( Addr base, UWord len, Addr nia )
             p[13] = VA_BITS16_UNDEFINED;
             p[14] = VA_BITS16_UNDEFINED;
             p[15] = VA_BITS16_UNDEFINED;
-            if (UNLIKELY( MC_(clo_mc_level) == 3 )) {
-               set_aligned_word64_Origin_to_undef( base + 8 * 0, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 1, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 2, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 3, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 4, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 5, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 6, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 7, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 8, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 9, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 10, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 11, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 12, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 13, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 14, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 15, otag );
-            }
+            set_aligned_word64_Origin_to_undef( base + 8 * 0, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 1, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 2, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 3, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 4, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 5, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 6, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 7, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 8, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 9, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 10, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 11, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 12, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 13, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 14, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 15, otag );
             return;
          }
       }
@@ -3632,14 +3677,13 @@ void MC_(helperc_MAKE_STACK_UNINIT) ( Addr base, UWord len, Addr nia )
       UWord a_hi = (UWord)(base + 288 - 1);
       tl_assert(a_lo < a_hi);             // paranoia: detect overflow
       if (a_hi <= MAX_PRIMARY_ADDRESS) {
-         // Now we know the entire range is within the main primary map.
-         SecMap* sm    = get_secmap_for_writing_low(a_lo);
-         SecMap* sm_hi = get_secmap_for_writing_low(a_hi);
-         /* Now we know that the entire address range falls within a
-            single secondary map, and that that secondary 'lives' in
-            the main primary map. */
-         if (LIKELY(sm == sm_hi)) {
-            // Finally, we know that the range is entirely within one secmap.
+         UWord pm_off_lo = get_primary_map_low_offset(a_lo);
+         UWord pm_off_hi = get_primary_map_low_offset(a_hi);
+         if (LIKELY(pm_off_lo == pm_off_hi)) {
+           /* Now we know that the entire address range falls within a
+              single secondary map, and that that secondary 'lives' in
+              the main primary map. */
+            SecMap* sm    = get_secmap_for_writing_low(a_lo);
             UWord   v_off = SM_OFF(a_lo);
             UShort* p     = (UShort*)(&sm->vabits8[v_off]);
             p[ 0] = VA_BITS16_UNDEFINED;
@@ -3678,44 +3722,42 @@ void MC_(helperc_MAKE_STACK_UNINIT) ( Addr base, UWord len, Addr nia )
             p[33] = VA_BITS16_UNDEFINED;
             p[34] = VA_BITS16_UNDEFINED;
             p[35] = VA_BITS16_UNDEFINED;
-            if (UNLIKELY( MC_(clo_mc_level) == 3 )) {
-               set_aligned_word64_Origin_to_undef( base + 8 * 0, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 1, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 2, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 3, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 4, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 5, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 6, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 7, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 8, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 9, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 10, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 11, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 12, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 13, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 14, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 15, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 16, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 17, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 18, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 19, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 20, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 21, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 22, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 23, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 24, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 25, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 26, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 27, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 28, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 29, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 30, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 31, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 32, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 33, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 34, otag );
-               set_aligned_word64_Origin_to_undef( base + 8 * 35, otag );
-            }
+            set_aligned_word64_Origin_to_undef( base + 8 * 0, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 1, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 2, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 3, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 4, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 5, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 6, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 7, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 8, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 9, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 10, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 11, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 12, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 13, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 14, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 15, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 16, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 17, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 18, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 19, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 20, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 21, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 22, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 23, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 24, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 25, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 26, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 27, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 28, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 29, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 30, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 31, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 32, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 33, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 34, otag );
+            set_aligned_word64_Origin_to_undef( base + 8 * 35, otag );
             return;
          }
       }
@@ -3723,6 +3765,278 @@ void MC_(helperc_MAKE_STACK_UNINIT) ( Addr base, UWord len, Addr nia )
 
    /* else fall into slow case */
    MC_(make_mem_undefined_w_otag)(base, len, otag);
+}
+
+
+/* This is a version of MC_(helperc_MAKE_STACK_UNINIT_w_o) that is
+   specialised for the non-origin-tracking case. */
+VG_REGPARM(2)
+void MC_(helperc_MAKE_STACK_UNINIT_no_o) ( Addr base, UWord len )
+{
+   PROF_EVENT(MCPE_MAKE_STACK_UNINIT_NO_O);
+   if (0)
+      VG_(printf)("helperc_MAKE_STACK_UNINIT_no_o (%#lx,%lu)\n",
+                  base, len );
+
+#  if 0
+   /* Slow(ish) version, which is fairly easily seen to be correct.
+   */
+   if (LIKELY( VG_IS_8_ALIGNED(base) && len==128 )) {
+      make_aligned_word64_undefined(base +   0);
+      make_aligned_word64_undefined(base +   8);
+      make_aligned_word64_undefined(base +  16);
+      make_aligned_word64_undefined(base +  24);
+
+      make_aligned_word64_undefined(base +  32);
+      make_aligned_word64_undefined(base +  40);
+      make_aligned_word64_undefined(base +  48);
+      make_aligned_word64_undefined(base +  56);
+
+      make_aligned_word64_undefined(base +  64);
+      make_aligned_word64_undefined(base +  72);
+      make_aligned_word64_undefined(base +  80);
+      make_aligned_word64_undefined(base +  88);
+
+      make_aligned_word64_undefined(base +  96);
+      make_aligned_word64_undefined(base + 104);
+      make_aligned_word64_undefined(base + 112);
+      make_aligned_word64_undefined(base + 120);
+   } else {
+      make_mem_undefined(base, len);
+   }
+#  endif 
+
+   /* Idea is: go fast when
+         * 8-aligned and length is 128
+         * the sm is available in the main primary map
+         * the address range falls entirely with a single secondary map
+      If all those conditions hold, just update the V+A bits by writing
+      directly into the vabits array.  (If the sm was distinguished, this
+      will make a copy and then write to it.)
+   */
+   if (LIKELY( len == 128 && VG_IS_8_ALIGNED(base) )) {
+      /* Now we know the address range is suitably sized and aligned. */
+      UWord a_lo = (UWord)(base);
+      UWord a_hi = (UWord)(base + 128 - 1);
+      tl_assert(a_lo < a_hi);             // paranoia: detect overflow
+      if (LIKELY(a_hi <= MAX_PRIMARY_ADDRESS)) {
+         /* Now we know the entire range is within the main primary map. */
+         UWord pm_off_lo = get_primary_map_low_offset(a_lo);
+         UWord pm_off_hi = get_primary_map_low_offset(a_hi);
+         if (LIKELY(pm_off_lo == pm_off_hi)) {
+           /* Now we know that the entire address range falls within a
+              single secondary map, and that that secondary 'lives' in
+              the main primary map. */
+            SecMap* sm    = get_secmap_for_writing_low(a_lo);
+            UWord   v_off = SM_OFF(a_lo);
+            UShort* p     = (UShort*)(&sm->vabits8[v_off]);
+            p[ 0] = VA_BITS16_UNDEFINED;
+            p[ 1] = VA_BITS16_UNDEFINED;
+            p[ 2] = VA_BITS16_UNDEFINED;
+            p[ 3] = VA_BITS16_UNDEFINED;
+            p[ 4] = VA_BITS16_UNDEFINED;
+            p[ 5] = VA_BITS16_UNDEFINED;
+            p[ 6] = VA_BITS16_UNDEFINED;
+            p[ 7] = VA_BITS16_UNDEFINED;
+            p[ 8] = VA_BITS16_UNDEFINED;
+            p[ 9] = VA_BITS16_UNDEFINED;
+            p[10] = VA_BITS16_UNDEFINED;
+            p[11] = VA_BITS16_UNDEFINED;
+            p[12] = VA_BITS16_UNDEFINED;
+            p[13] = VA_BITS16_UNDEFINED;
+            p[14] = VA_BITS16_UNDEFINED;
+            p[15] = VA_BITS16_UNDEFINED;
+            return;
+         }
+      }
+   }
+
+   /* 288 bytes (36 ULongs) is the magic value for ELF ppc64. */
+   if (LIKELY( len == 288 && VG_IS_8_ALIGNED(base) )) {
+      /* Now we know the address range is suitably sized and aligned. */
+      UWord a_lo = (UWord)(base);
+      UWord a_hi = (UWord)(base + 288 - 1);
+      tl_assert(a_lo < a_hi);             // paranoia: detect overflow
+      if (a_hi <= MAX_PRIMARY_ADDRESS) {
+         UWord pm_off_lo = get_primary_map_low_offset(a_lo);
+         UWord pm_off_hi = get_primary_map_low_offset(a_hi);
+         if (LIKELY(pm_off_lo == pm_off_hi)) {
+           /* Now we know that the entire address range falls within a
+              single secondary map, and that that secondary 'lives' in
+              the main primary map. */
+            SecMap* sm    = get_secmap_for_writing_low(a_lo);
+            UWord   v_off = SM_OFF(a_lo);
+            UShort* p     = (UShort*)(&sm->vabits8[v_off]);
+            p[ 0] = VA_BITS16_UNDEFINED;
+            p[ 1] = VA_BITS16_UNDEFINED;
+            p[ 2] = VA_BITS16_UNDEFINED;
+            p[ 3] = VA_BITS16_UNDEFINED;
+            p[ 4] = VA_BITS16_UNDEFINED;
+            p[ 5] = VA_BITS16_UNDEFINED;
+            p[ 6] = VA_BITS16_UNDEFINED;
+            p[ 7] = VA_BITS16_UNDEFINED;
+            p[ 8] = VA_BITS16_UNDEFINED;
+            p[ 9] = VA_BITS16_UNDEFINED;
+            p[10] = VA_BITS16_UNDEFINED;
+            p[11] = VA_BITS16_UNDEFINED;
+            p[12] = VA_BITS16_UNDEFINED;
+            p[13] = VA_BITS16_UNDEFINED;
+            p[14] = VA_BITS16_UNDEFINED;
+            p[15] = VA_BITS16_UNDEFINED;
+            p[16] = VA_BITS16_UNDEFINED;
+            p[17] = VA_BITS16_UNDEFINED;
+            p[18] = VA_BITS16_UNDEFINED;
+            p[19] = VA_BITS16_UNDEFINED;
+            p[20] = VA_BITS16_UNDEFINED;
+            p[21] = VA_BITS16_UNDEFINED;
+            p[22] = VA_BITS16_UNDEFINED;
+            p[23] = VA_BITS16_UNDEFINED;
+            p[24] = VA_BITS16_UNDEFINED;
+            p[25] = VA_BITS16_UNDEFINED;
+            p[26] = VA_BITS16_UNDEFINED;
+            p[27] = VA_BITS16_UNDEFINED;
+            p[28] = VA_BITS16_UNDEFINED;
+            p[29] = VA_BITS16_UNDEFINED;
+            p[30] = VA_BITS16_UNDEFINED;
+            p[31] = VA_BITS16_UNDEFINED;
+            p[32] = VA_BITS16_UNDEFINED;
+            p[33] = VA_BITS16_UNDEFINED;
+            p[34] = VA_BITS16_UNDEFINED;
+            p[35] = VA_BITS16_UNDEFINED;
+            return;
+         }
+      }
+   }
+
+   /* else fall into slow case */
+   make_mem_undefined(base, len);
+}
+
+
+/* And this is an even more specialised case, for the case where there
+   is no origin tracking, and the length is 128. */
+VG_REGPARM(1)
+void MC_(helperc_MAKE_STACK_UNINIT_128_no_o) ( Addr base )
+{
+   PROF_EVENT(MCPE_MAKE_STACK_UNINIT_128_NO_O);
+   if (0)
+      VG_(printf)("helperc_MAKE_STACK_UNINIT_128_no_o (%#lx)\n", base );
+
+#  if 0
+   /* Slow(ish) version, which is fairly easily seen to be correct.
+   */
+   if (LIKELY( VG_IS_8_ALIGNED(base) )) {
+      make_aligned_word64_undefined(base +   0);
+      make_aligned_word64_undefined(base +   8);
+      make_aligned_word64_undefined(base +  16);
+      make_aligned_word64_undefined(base +  24);
+
+      make_aligned_word64_undefined(base +  32);
+      make_aligned_word64_undefined(base +  40);
+      make_aligned_word64_undefined(base +  48);
+      make_aligned_word64_undefined(base +  56);
+
+      make_aligned_word64_undefined(base +  64);
+      make_aligned_word64_undefined(base +  72);
+      make_aligned_word64_undefined(base +  80);
+      make_aligned_word64_undefined(base +  88);
+
+      make_aligned_word64_undefined(base +  96);
+      make_aligned_word64_undefined(base + 104);
+      make_aligned_word64_undefined(base + 112);
+      make_aligned_word64_undefined(base + 120);
+   } else {
+      make_mem_undefined(base, 128);
+   }
+#  endif 
+
+   /* Idea is: go fast when
+         * 16-aligned and length is 128
+         * the sm is available in the main primary map
+         * the address range falls entirely with a single secondary map
+      If all those conditions hold, just update the V+A bits by writing
+      directly into the vabits array.  (If the sm was distinguished, this
+      will make a copy and then write to it.)
+
+      Typically this applies to amd64 'ret' instructions, since RSP is
+      16-aligned (0 % 16) after the instruction (per the amd64-ELF ABI).
+   */
+   if (LIKELY( VG_IS_16_ALIGNED(base) )) {
+      /* Now we know the address range is suitably sized and aligned. */
+      UWord a_lo = (UWord)(base);
+      UWord a_hi = (UWord)(base + 128 - 1);
+      /* FIXME: come up with a sane story on the wraparound case
+         (which of course cnanot happen, but still..) */
+      /* tl_assert(a_lo < a_hi); */            // paranoia: detect overflow
+      if (LIKELY(a_hi <= MAX_PRIMARY_ADDRESS)) {
+         /* Now we know the entire range is within the main primary map. */
+         UWord pm_off_lo = get_primary_map_low_offset(a_lo);
+         UWord pm_off_hi = get_primary_map_low_offset(a_hi);
+         if (LIKELY(pm_off_lo == pm_off_hi)) {
+           /* Now we know that the entire address range falls within a
+              single secondary map, and that that secondary 'lives' in
+              the main primary map. */
+            PROF_EVENT(MCPE_MAKE_STACK_UNINIT_128_NO_O_ALIGNED_16);
+            SecMap* sm    = get_secmap_for_writing_low(a_lo);
+            UWord   v_off = SM_OFF(a_lo);
+            UInt*   w32   = (UInt*)(&sm->vabits8[v_off]);
+            w32[ 0] = VA_BITS32_UNDEFINED;
+            w32[ 1] = VA_BITS32_UNDEFINED;
+            w32[ 2] = VA_BITS32_UNDEFINED;
+            w32[ 3] = VA_BITS32_UNDEFINED;
+            w32[ 4] = VA_BITS32_UNDEFINED;
+            w32[ 5] = VA_BITS32_UNDEFINED;
+            w32[ 6] = VA_BITS32_UNDEFINED;
+            w32[ 7] = VA_BITS32_UNDEFINED;
+            return;
+         }
+      }
+   }
+   
+   /* The same, but for when base is 8 % 16, which is the situation
+      with RSP for amd64-ELF immediately after call instructions.
+   */
+   if (LIKELY( VG_IS_16_ALIGNED(base+8) )) { // restricts to 8 aligned
+      /* Now we know the address range is suitably sized and aligned. */
+      UWord a_lo = (UWord)(base);
+      UWord a_hi = (UWord)(base + 128 - 1);
+      /* FIXME: come up with a sane story on the wraparound case
+         (which of course cnanot happen, but still..) */
+      /* tl_assert(a_lo < a_hi); */            // paranoia: detect overflow
+      if (LIKELY(a_hi <= MAX_PRIMARY_ADDRESS)) {
+         /* Now we know the entire range is within the main primary map. */
+         UWord pm_off_lo = get_primary_map_low_offset(a_lo);
+         UWord pm_off_hi = get_primary_map_low_offset(a_hi);
+         if (LIKELY(pm_off_lo == pm_off_hi)) {
+            PROF_EVENT(MCPE_MAKE_STACK_UNINIT_128_NO_O_ALIGNED_8);
+           /* Now we know that the entire address range falls within a
+              single secondary map, and that that secondary 'lives' in
+              the main primary map. */
+            SecMap* sm    = get_secmap_for_writing_low(a_lo);
+            UWord   v_off = SM_OFF(a_lo);
+            UShort* w16   = (UShort*)(&sm->vabits8[v_off]);
+            UInt*   w32   = (UInt*)(&w16[1]);
+            /* The following assertion is commented out for obvious
+               performance reasons, but was verified as valid when
+               running the entire testsuite and also Firefox. */
+            /* tl_assert(VG_IS_4_ALIGNED(w32)); */
+            w16[ 0] = VA_BITS16_UNDEFINED; // w16[0]
+            w32[ 0] = VA_BITS32_UNDEFINED; // w16[1,2]
+            w32[ 1] = VA_BITS32_UNDEFINED; // w16[3,4]
+            w32[ 2] = VA_BITS32_UNDEFINED; // w16[5,6]
+            w32[ 3] = VA_BITS32_UNDEFINED; // w16[7,8]
+            w32[ 4] = VA_BITS32_UNDEFINED; // w16[9,10]
+            w32[ 5] = VA_BITS32_UNDEFINED; // w16[11,12]
+            w32[ 6] = VA_BITS32_UNDEFINED; // w16[13,14]
+            w16[15] = VA_BITS16_UNDEFINED; // w16[15]
+            return;
+         }
+      }
+   }
+
+   /* else fall into slow case */
+   PROF_EVENT(MCPE_MAKE_STACK_UNINIT_128_NO_O_SLOWCASE);
+   make_mem_undefined(base, 128);
 }
 
 
@@ -3752,9 +4066,9 @@ Bool MC_(check_mem_is_noaccess) ( Addr a, SizeT len, Addr* bad_addr )
    SizeT i;
    UWord vabits2;
 
-   PROF_EVENT(60, "check_mem_is_noaccess");
+   PROF_EVENT(MCPE_CHECK_MEM_IS_NOACCESS);
    for (i = 0; i < len; i++) {
-      PROF_EVENT(61, "check_mem_is_noaccess(loop)");
+      PROF_EVENT(MCPE_CHECK_MEM_IS_NOACCESS_LOOP);
       vabits2 = get_vabits2(a);
       if (VA_BITS2_NOACCESS != vabits2) {
          if (bad_addr != NULL) *bad_addr = a;
@@ -3771,9 +4085,9 @@ static Bool is_mem_addressable ( Addr a, SizeT len,
    SizeT i;
    UWord vabits2;
 
-   PROF_EVENT(62, "is_mem_addressable");
+   PROF_EVENT(MCPE_IS_MEM_ADDRESSABLE);
    for (i = 0; i < len; i++) {
-      PROF_EVENT(63, "is_mem_addressable(loop)");
+      PROF_EVENT(MCPE_IS_MEM_ADDRESSABLE_LOOP);
       vabits2 = get_vabits2(a);
       if (VA_BITS2_NOACCESS == vabits2) {
          if (bad_addr != NULL) *bad_addr = a;
@@ -3790,9 +4104,9 @@ static Bool is_mem_undefined ( Addr a, SizeT len,
    SizeT i;
    UWord vabits2;
 
-   PROF_EVENT(68, "is_mem_undefined");
+   PROF_EVENT(MCPE_IS_MEM_UNDEFINED);
    for (i = 0; i < len; i++) {
-      PROF_EVENT(69, "is_mem_undefined(loop)");
+      PROF_EVENT(MCPE_IS_MEM_UNDEFINED_LOOP);
       vabits2 = get_vabits2(a);
       if (VA_BITS2_UNDEFINED != vabits2) {
          if (bad_addr != NULL) *bad_addr = a;
@@ -3810,13 +4124,13 @@ static MC_ReadResult is_mem_defined ( Addr a, SizeT len,
    SizeT i;
    UWord vabits2;
 
-   PROF_EVENT(64, "is_mem_defined");
+   PROF_EVENT(MCPE_IS_MEM_DEFINED);
    DEBUG("is_mem_defined\n");
 
    if (otag)     *otag = 0;
    if (bad_addr) *bad_addr = 0;
    for (i = 0; i < len; i++) {
-      PROF_EVENT(65, "is_mem_defined(loop)");
+      PROF_EVENT(MCPE_IS_MEM_DEFINED_LOOP);
       vabits2 = get_vabits2(a);
       if (VA_BITS2_DEFINED != vabits2) {
          // Error!  Nb: Report addressability errors in preference to
@@ -3863,13 +4177,13 @@ static void is_mem_defined_comprehensive (
    UWord vabits2;
    Bool  already_saw_errV = False;
 
-   PROF_EVENT(64, "is_mem_defined"); // fixme
+   PROF_EVENT(MCPE_IS_MEM_DEFINED_COMPREHENSIVE);
    DEBUG("is_mem_defined_comprehensive\n");
 
    tl_assert(!(*errorV || *errorA));
 
    for (i = 0; i < len; i++) {
-      PROF_EVENT(65, "is_mem_defined(loop)"); // fixme
+      PROF_EVENT(MCPE_IS_MEM_DEFINED_COMPREHENSIVE_LOOP);
       vabits2 = get_vabits2(a);
       switch (vabits2) {
          case VA_BITS2_DEFINED: 
@@ -3908,13 +4222,13 @@ static Bool mc_is_defined_asciiz ( Addr a, Addr* bad_addr, UInt* otag )
 {
    UWord vabits2;
 
-   PROF_EVENT(66, "mc_is_defined_asciiz");
+   PROF_EVENT(MCPE_IS_DEFINED_ASCIIZ);
    DEBUG("mc_is_defined_asciiz\n");
 
    if (otag)     *otag = 0;
    if (bad_addr) *bad_addr = 0;
    while (True) {
-      PROF_EVENT(67, "mc_is_defined_asciiz(loop)");
+      PROF_EVENT(MCPE_IS_DEFINED_ASCIIZ_LOOP);
       vabits2 = get_vabits2(a);
       if (VA_BITS2_DEFINED != vabits2) {
          // Error!  Nb: Report addressability errors in preference to
@@ -4167,7 +4481,7 @@ static UInt mb_get_origin_for_guest_offset ( ThreadId tid,
 static void mc_post_reg_write ( CorePart part, ThreadId tid, 
                                 PtrdiffT offset, SizeT size)
 {
-#  define MAX_REG_WRITE_SIZE 1696
+#  define MAX_REG_WRITE_SIZE 1712
    UChar area[MAX_REG_WRITE_SIZE];
    tl_assert(size <= MAX_REG_WRITE_SIZE);
    VG_(memset)(area, V_BITS8_DEFINED, size);
@@ -4214,6 +4528,140 @@ static void mc_pre_reg_read ( CorePart part, ThreadId tid, const HChar* s,
    otag = mb_get_origin_for_guest_offset( tid, offset, size );
    MC_(record_regparam_error) ( tid, s, otag );
 }
+
+
+/*------------------------------------------------------------*/
+/*--- Register-memory event handlers                       ---*/
+/*------------------------------------------------------------*/
+
+static void mc_copy_mem_to_reg ( CorePart part, ThreadId tid, Addr a,
+                                 PtrdiffT guest_state_offset, SizeT size )
+{
+   SizeT i;
+   UChar vbits8;
+   Int offset;
+   UInt d32;
+
+   /* Slow loop. */
+   for (i = 0; i < size; i++) {
+      get_vbits8( a+i, &vbits8 );
+      VG_(set_shadow_regs_area)( tid, 1/*shadowNo*/, guest_state_offset+i,
+                                 1, &vbits8 );
+   }
+
+   if (MC_(clo_mc_level) != 3)
+      return;
+
+   /* Track origins. */
+   offset = MC_(get_otrack_shadow_offset)( guest_state_offset, size );
+   if (offset == -1)
+      return;
+
+   switch (size) {
+   case 1:
+      d32 = MC_(helperc_b_load1)( a );
+      break;
+   case 2:
+      d32 = MC_(helperc_b_load2)( a );
+      break;
+   case 4:
+      d32 = MC_(helperc_b_load4)( a );
+      break;
+   case 8:
+      d32 = MC_(helperc_b_load8)( a );
+      break;
+   case 16:
+      d32 = MC_(helperc_b_load16)( a );
+      break;
+   case 32:
+      d32 = MC_(helperc_b_load32)( a );
+      break;
+   default:
+      tl_assert(0);
+   }
+
+   VG_(set_shadow_regs_area)( tid, 2/*shadowNo*/, offset, 4, (UChar*)&d32 );
+}
+
+static void mc_copy_reg_to_mem ( CorePart part, ThreadId tid,
+                                 PtrdiffT guest_state_offset, Addr a,
+                                 SizeT size )
+{
+   SizeT i;
+   UChar vbits8;
+   Int offset;
+   UInt d32;
+
+   /* Slow loop. */
+   for (i = 0; i < size; i++) {
+      VG_(get_shadow_regs_area)( tid, &vbits8, 1/*shadowNo*/,
+                                 guest_state_offset+i, 1 );
+      set_vbits8( a+i, vbits8 );
+   }
+
+   if (MC_(clo_mc_level) != 3)
+      return;
+
+   /* Track origins. */
+   offset = MC_(get_otrack_shadow_offset)( guest_state_offset, size );
+   if (offset == -1)
+      return;
+
+   VG_(get_shadow_regs_area)( tid, (UChar*)&d32, 2/*shadowNo*/, offset, 4 );
+   switch (size) {
+   case 1:
+      MC_(helperc_b_store1)( a, d32 );
+      break;
+   case 2:
+      MC_(helperc_b_store2)( a, d32 );
+      break;
+   case 4:
+      MC_(helperc_b_store4)( a, d32 );
+      break;
+   case 8:
+      MC_(helperc_b_store8)( a, d32 );
+      break;
+   case 16:
+      MC_(helperc_b_store16)( a, d32 );
+      break;
+   case 32:
+      MC_(helperc_b_store32)( a, d32 );
+      break;
+   default:
+      tl_assert(0);
+   }
+}
+
+
+/*------------------------------------------------------------*/
+/*--- Some static assertions                               ---*/
+/*------------------------------------------------------------*/
+
+/* The handwritten assembly helpers below have baked-in assumptions
+   about various constant values.  These assertions attempt to make
+   that a bit safer by checking those values and flagging changes that
+   would make the assembly invalid.  Not perfect but it's better than
+   nothing. */
+
+STATIC_ASSERT(SM_CHUNKS * 4 == 65536);
+
+STATIC_ASSERT(VA_BITS8_DEFINED   == 0xAA);
+STATIC_ASSERT(VA_BITS8_UNDEFINED == 0x55);
+
+STATIC_ASSERT(V_BITS32_DEFINED   == 0x00000000);
+STATIC_ASSERT(V_BITS32_UNDEFINED == 0xFFFFFFFF);
+
+STATIC_ASSERT(VA_BITS4_DEFINED == 0xA);
+STATIC_ASSERT(VA_BITS4_UNDEFINED == 0x5);
+
+STATIC_ASSERT(V_BITS16_DEFINED == 0x0000);
+STATIC_ASSERT(V_BITS16_UNDEFINED == 0xFFFF);
+
+STATIC_ASSERT(VA_BITS2_DEFINED == 2);
+STATIC_ASSERT(VA_BITS2_UNDEFINED == 1);
+
+STATIC_ASSERT(V_BITS8_DEFINED == 0x00);
+STATIC_ASSERT(V_BITS8_UNDEFINED == 0xFF);
 
 
 /*------------------------------------------------------------*/
@@ -4306,14 +4754,15 @@ static void mc_pre_reg_read ( CorePart part, ThreadId tid, const HChar* s,
            = 0xFFFF'FFF0'0000'0007
 */
 
-
-/* ------------------------ Size = 16 ------------------------ */
+/*------------------------------------------------------------*/
+/*--- LOADV256 and LOADV128                                ---*/
+/*------------------------------------------------------------*/
 
 static INLINE
 void mc_LOADV_128_or_256 ( /*OUT*/ULong* res,
                            Addr a, SizeT nBits, Bool isBigEndian )
 {
-   PROF_EVENT(200, "mc_LOADV_128_or_256");
+   PROF_EVENT(MCPE_LOADV_128_OR_256);
 
 #ifndef PERF_FAST_LOADV
    mc_LOADV_128_or_256_slow( res, a, nBits, isBigEndian );
@@ -4326,7 +4775,7 @@ void mc_LOADV_128_or_256 ( /*OUT*/ULong* res,
       SecMap* sm;
 
       if (UNLIKELY( UNALIGNED_OR_HIGH(a,nBits) )) {
-         PROF_EVENT(201, "mc_LOADV_128_or_256-slow1");
+         PROF_EVENT(MCPE_LOADV_128_OR_256_SLOW1);
          mc_LOADV_128_or_256_slow( res, a, nBits, isBigEndian );
          return;
       }
@@ -4347,7 +4796,7 @@ void mc_LOADV_128_or_256 ( /*OUT*/ULong* res,
          } else {
             /* Slow case: some block of 8 bytes are not all-defined or
                all-undefined. */
-            PROF_EVENT(202, "mc_LOADV_128_or_256-slow2");
+            PROF_EVENT(MCPE_LOADV_128_OR_256_SLOW2);
             mc_LOADV_128_or_256_slow( res, a, nBits, isBigEndian );
             return;
          }
@@ -4375,12 +4824,14 @@ VG_REGPARM(2) void MC_(helperc_LOADV128le) ( /*OUT*/V128* res, Addr a )
    mc_LOADV_128_or_256(&res->w64[0], a, 128, False);
 }
 
-/* ------------------------ Size = 8 ------------------------ */
+/*------------------------------------------------------------*/
+/*--- LOADV64                                              ---*/
+/*------------------------------------------------------------*/
 
 static INLINE
 ULong mc_LOADV64 ( Addr a, Bool isBigEndian )
 {
-   PROF_EVENT(200, "mc_LOADV64");
+   PROF_EVENT(MCPE_LOADV64);
 
 #ifndef PERF_FAST_LOADV
    return mc_LOADVn_slow( a, 64, isBigEndian );
@@ -4390,7 +4841,7 @@ ULong mc_LOADV64 ( Addr a, Bool isBigEndian )
       SecMap* sm;
 
       if (UNLIKELY( UNALIGNED_OR_HIGH(a,64) )) {
-         PROF_EVENT(201, "mc_LOADV64-slow1");
+         PROF_EVENT(MCPE_LOADV64_SLOW1);
          return (ULong)mc_LOADVn_slow( a, 64, isBigEndian );
       }
 
@@ -4407,27 +4858,111 @@ ULong mc_LOADV64 ( Addr a, Bool isBigEndian )
          return V_BITS64_UNDEFINED;
       } else {
          /* Slow case: the 8 bytes are not all-defined or all-undefined. */
-         PROF_EVENT(202, "mc_LOADV64-slow2");
+         PROF_EVENT(MCPE_LOADV64_SLOW2);
          return mc_LOADVn_slow( a, 64, isBigEndian );
       }
    }
 #endif
 }
 
+// Generic for all platforms
 VG_REGPARM(1) ULong MC_(helperc_LOADV64be) ( Addr a )
 {
    return mc_LOADV64(a, True);
 }
+
+// Non-generic assembly for arm32-linux
+#if ENABLE_ASSEMBLY_HELPERS && defined(PERF_FAST_LOADV) \
+    && defined(VGP_arm_linux)
+__asm__( /* Derived from the 32 bit assembly helper */
+".text                                  \n"
+".align 2                               \n"
+".global vgMemCheck_helperc_LOADV64le   \n"
+".type   vgMemCheck_helperc_LOADV64le, %function \n"
+"vgMemCheck_helperc_LOADV64le:          \n"
+"      tst    r0, #7                    \n"
+"      movw   r3, #:lower16:primary_map \n"
+"      bne    .LLV64LEc4                \n" // if misaligned
+"      lsr    r2, r0, #16               \n"
+"      movt   r3, #:upper16:primary_map \n"
+"      ldr    r2, [r3, r2, lsl #2]      \n"
+"      uxth   r1, r0                    \n" // r1 is 0-(16)-0 X-(13)-X 000
+"      movw   r3, #0xAAAA               \n"
+"      lsr    r1, r1, #2                \n" // r1 is 0-(16)-0 00 X-(13)-X 0
+"      ldrh   r1, [r2, r1]              \n"
+"      cmp    r1, r3                    \n" // 0xAAAA == VA_BITS16_DEFINED
+"      bne    .LLV64LEc0                \n" // if !all_defined
+"      mov    r1, #0x0                  \n" // 0x0 == V_BITS32_DEFINED
+"      mov    r0, #0x0                  \n" // 0x0 == V_BITS32_DEFINED
+"      bx     lr                        \n"
+".LLV64LEc0:                            \n"
+"      movw   r3, #0x5555               \n"
+"      cmp    r1, r3                    \n" // 0x5555 == VA_BITS16_UNDEFINED
+"      bne    .LLV64LEc4                \n" // if !all_undefined
+"      mov    r1, #0xFFFFFFFF           \n" // 0xFFFFFFFF == V_BITS32_UNDEFINED
+"      mov    r0, #0xFFFFFFFF           \n" // 0xFFFFFFFF == V_BITS32_UNDEFINED
+"      bx     lr                        \n"
+".LLV64LEc4:                            \n"
+"      push   {r4, lr}                  \n"
+"      mov    r2, #0                    \n"
+"      mov    r1, #64                   \n"
+"      bl     mc_LOADVn_slow            \n"
+"      pop    {r4, pc}                  \n"
+".size vgMemCheck_helperc_LOADV64le, .-vgMemCheck_helperc_LOADV64le \n"
+".previous\n"
+);
+
+#elif ENABLE_ASSEMBLY_HELPERS && defined(PERF_FAST_LOADV) \
+      && (defined(VGP_x86_linux) || defined(VGP_x86_solaris))
+__asm__(
+".text\n"
+".align 16\n"
+".global vgMemCheck_helperc_LOADV64le\n"
+".type   vgMemCheck_helperc_LOADV64le, @function\n"
+"vgMemCheck_helperc_LOADV64le:\n"
+"      test   $0x7,  %eax\n"
+"      jne    .LLV64LE2\n"          /* jump if not aligned */
+"      mov    %eax,  %ecx\n"
+"      movzwl %ax,   %edx\n"
+"      shr    $0x10, %ecx\n"
+"      mov    primary_map(,%ecx,4), %ecx\n"
+"      shr    $0x3,  %edx\n"
+"      movzwl (%ecx,%edx,2), %edx\n"
+"      cmp    $0xaaaa, %edx\n"
+"      jne    .LLV64LE1\n"          /* jump if not all defined */
+"      xor    %eax, %eax\n"         /* return 0 in edx:eax */
+"      xor    %edx, %edx\n"
+"      ret\n"
+".LLV64LE1:\n"
+"      cmp    $0x5555, %edx\n"
+"      jne    .LLV64LE2\n"         /* jump if not all undefined */
+"      or     $0xffffffff, %eax\n" /* else return all bits set in edx:eax */
+"      or     $0xffffffff, %edx\n"
+"      ret\n"
+".LLV64LE2:\n"
+"      xor    %ecx,  %ecx\n"  /* tail call to mc_LOADVn_slow(a, 64, 0) */
+"      mov    $64,   %edx\n"
+"      jmp    mc_LOADVn_slow\n"
+".size vgMemCheck_helperc_LOADV64le, .-vgMemCheck_helperc_LOADV64le\n"
+".previous\n"
+);
+
+#else
+// Generic for all platforms except {arm32,x86}-linux and x86-solaris
 VG_REGPARM(1) ULong MC_(helperc_LOADV64le) ( Addr a )
 {
    return mc_LOADV64(a, False);
 }
+#endif
 
+/*------------------------------------------------------------*/
+/*--- STOREV64                                             ---*/
+/*------------------------------------------------------------*/
 
 static INLINE
 void mc_STOREV64 ( Addr a, ULong vbits64, Bool isBigEndian )
 {
-   PROF_EVENT(210, "mc_STOREV64");
+   PROF_EVENT(MCPE_STOREV64);
 
 #ifndef PERF_FAST_STOREV
    // XXX: this slow case seems to be marginally faster than the fast case!
@@ -4439,7 +4974,7 @@ void mc_STOREV64 ( Addr a, ULong vbits64, Bool isBigEndian )
       SecMap* sm;
 
       if (UNLIKELY( UNALIGNED_OR_HIGH(a,64) )) {
-         PROF_EVENT(211, "mc_STOREV64-slow1");
+         PROF_EVENT(MCPE_STOREV64_SLOW1);
          mc_STOREVn_slow( a, 64, vbits64, isBigEndian );
          return;
       }
@@ -4458,7 +4993,7 @@ void mc_STOREV64 ( Addr a, ULong vbits64, Bool isBigEndian )
             ((UShort*)(sm->vabits8))[sm_off16] = (UShort)VA_BITS16_DEFINED;
             return;
          }
-         PROF_EVENT(232, "mc_STOREV64-slow2");
+         PROF_EVENT(MCPE_STOREV64_SLOW2);
          mc_STOREVn_slow( a, 64, vbits64, isBigEndian );
          return;
       }
@@ -4470,12 +5005,12 @@ void mc_STOREV64 ( Addr a, ULong vbits64, Bool isBigEndian )
             ((UShort*)(sm->vabits8))[sm_off16] = (UShort)VA_BITS16_UNDEFINED;
             return;
          } 
-         PROF_EVENT(232, "mc_STOREV64-slow3");
+         PROF_EVENT(MCPE_STOREV64_SLOW3);
          mc_STOREVn_slow( a, 64, vbits64, isBigEndian );
          return;
       }
 
-      PROF_EVENT(212, "mc_STOREV64-slow4");
+      PROF_EVENT(MCPE_STOREV64_SLOW4);
       mc_STOREVn_slow( a, 64, vbits64, isBigEndian );
    }
 #endif
@@ -4490,13 +5025,14 @@ VG_REGPARM(1) void MC_(helperc_STOREV64le) ( Addr a, ULong vbits64 )
    mc_STOREV64(a, vbits64, False);
 }
 
-
-/* ------------------------ Size = 4 ------------------------ */
+/*------------------------------------------------------------*/
+/*--- LOADV32                                              ---*/
+/*------------------------------------------------------------*/
 
 static INLINE
 UWord mc_LOADV32 ( Addr a, Bool isBigEndian )
 {
-   PROF_EVENT(220, "mc_LOADV32");
+   PROF_EVENT(MCPE_LOADV32);
 
 #ifndef PERF_FAST_LOADV
    return (UWord)mc_LOADVn_slow( a, 32, isBigEndian );
@@ -4506,7 +5042,7 @@ UWord mc_LOADV32 ( Addr a, Bool isBigEndian )
       SecMap* sm;
 
       if (UNLIKELY( UNALIGNED_OR_HIGH(a,32) )) {
-         PROF_EVENT(221, "mc_LOADV32-slow1");
+         PROF_EVENT(MCPE_LOADV32_SLOW1);
          return (UWord)mc_LOADVn_slow( a, 32, isBigEndian );
       }
 
@@ -4525,27 +5061,104 @@ UWord mc_LOADV32 ( Addr a, Bool isBigEndian )
          return ((UWord)0xFFFFFFFF00000000ULL | (UWord)V_BITS32_UNDEFINED);
       } else {
          /* Slow case: the 4 bytes are not all-defined or all-undefined. */
-         PROF_EVENT(222, "mc_LOADV32-slow2");
+         PROF_EVENT(MCPE_LOADV32_SLOW2);
          return (UWord)mc_LOADVn_slow( a, 32, isBigEndian );
       }
    }
 #endif
 }
 
+// Generic for all platforms
 VG_REGPARM(1) UWord MC_(helperc_LOADV32be) ( Addr a )
 {
    return mc_LOADV32(a, True);
 }
+
+// Non-generic assembly for arm32-linux
+#if ENABLE_ASSEMBLY_HELPERS && defined(PERF_FAST_LOADV) \
+    && defined(VGP_arm_linux)
+__asm__( /* Derived from NCode template */
+".text                                  \n"
+".align 2                               \n"
+".global vgMemCheck_helperc_LOADV32le   \n"
+".type   vgMemCheck_helperc_LOADV32le, %function \n"
+"vgMemCheck_helperc_LOADV32le:          \n"
+"      tst    r0, #3                    \n" // 1
+"      movw   r3, #:lower16:primary_map \n" // 1
+"      bne    .LLV32LEc4                \n" // 2  if misaligned
+"      lsr    r2, r0, #16               \n" // 3
+"      movt   r3, #:upper16:primary_map \n" // 3
+"      ldr    r2, [r3, r2, lsl #2]      \n" // 4
+"      uxth   r1, r0                    \n" // 4
+"      ldrb   r1, [r2, r1, lsr #2]      \n" // 5
+"      cmp    r1, #0xAA                 \n" // 6  0xAA == VA_BITS8_DEFINED
+"      bne    .LLV32LEc0                \n" // 7  if !all_defined
+"      mov    r0, #0x0                  \n" // 8  0x0 == V_BITS32_DEFINED
+"      bx     lr                        \n" // 9
+".LLV32LEc0:                            \n"
+"      cmp    r1, #0x55                 \n" // 0x55 == VA_BITS8_UNDEFINED
+"      bne    .LLV32LEc4                \n" // if !all_undefined
+"      mov    r0, #0xFFFFFFFF           \n" // 0xFFFFFFFF == V_BITS32_UNDEFINED
+"      bx     lr                        \n"
+".LLV32LEc4:                            \n"
+"      push   {r4, lr}                  \n"
+"      mov    r2, #0                    \n"
+"      mov    r1, #32                   \n"
+"      bl     mc_LOADVn_slow            \n"
+"      pop    {r4, pc}                  \n"
+".size vgMemCheck_helperc_LOADV32le, .-vgMemCheck_helperc_LOADV32le \n"
+".previous\n"
+);
+
+#elif ENABLE_ASSEMBLY_HELPERS && defined(PERF_FAST_LOADV) \
+      && (defined(VGP_x86_linux) || defined(VGP_x86_solaris))
+__asm__(
+".text\n"
+".align 16\n"
+".global vgMemCheck_helperc_LOADV32le\n"
+".type   vgMemCheck_helperc_LOADV32le, @function\n"
+"vgMemCheck_helperc_LOADV32le:\n"
+"      test   $0x3,  %eax\n"
+"      jnz    .LLV32LE2\n"         /* jump if misaligned */
+"      mov    %eax,  %edx\n"
+"      shr    $16,   %edx\n"
+"      mov    primary_map(,%edx,4), %ecx\n"
+"      movzwl %ax,   %edx\n"
+"      shr    $2,    %edx\n"
+"      movzbl (%ecx,%edx,1), %edx\n"
+"      cmp    $0xaa, %edx\n"       /* compare to VA_BITS8_DEFINED */
+"      jne    .LLV32LE1\n"         /* jump if not completely defined */
+"      xor    %eax,  %eax\n"       /* else return V_BITS32_DEFINED */
+"      ret\n"
+".LLV32LE1:\n"
+"      cmp    $0x55, %edx\n"       /* compare to VA_BITS8_UNDEFINED */
+"      jne    .LLV32LE2\n"         /* jump if not completely undefined */
+"      or     $0xffffffff, %eax\n" /* else return V_BITS32_UNDEFINED */
+"      ret\n"
+".LLV32LE2:\n"
+"      xor    %ecx,  %ecx\n"       /* tail call mc_LOADVn_slow(a, 32, 0) */
+"      mov    $32,   %edx\n"
+"      jmp    mc_LOADVn_slow\n"
+".size vgMemCheck_helperc_LOADV32le, .-vgMemCheck_helperc_LOADV32le\n"
+".previous\n"
+);
+
+#else
+// Generic for all platforms except {arm32,x86}-linux and x86-solaris
 VG_REGPARM(1) UWord MC_(helperc_LOADV32le) ( Addr a )
 {
    return mc_LOADV32(a, False);
 }
+#endif
 
+/*------------------------------------------------------------*/
+/*--- STOREV32                                             ---*/
+/*------------------------------------------------------------*/
 
 static INLINE
 void mc_STOREV32 ( Addr a, UWord vbits32, Bool isBigEndian )
 {
-   PROF_EVENT(230, "mc_STOREV32");
+   PROF_EVENT(MCPE_STOREV32);
 
 #ifndef PERF_FAST_STOREV
    mc_STOREVn_slow( a, 32, (ULong)vbits32, isBigEndian );
@@ -4555,7 +5168,7 @@ void mc_STOREV32 ( Addr a, UWord vbits32, Bool isBigEndian )
       SecMap* sm;
 
       if (UNLIKELY( UNALIGNED_OR_HIGH(a,32) )) {
-         PROF_EVENT(231, "mc_STOREV32-slow1");
+         PROF_EVENT(MCPE_STOREV32_SLOW1);
          mc_STOREVn_slow( a, 32, (ULong)vbits32, isBigEndian );
          return;
       }
@@ -4574,7 +5187,7 @@ void mc_STOREV32 ( Addr a, UWord vbits32, Bool isBigEndian )
             sm->vabits8[sm_off] = (UInt)VA_BITS8_DEFINED;
             return;
          }
-         PROF_EVENT(232, "mc_STOREV32-slow2");
+         PROF_EVENT(MCPE_STOREV32_SLOW2);
          mc_STOREVn_slow( a, 32, (ULong)vbits32, isBigEndian );
          return;
       }
@@ -4586,12 +5199,12 @@ void mc_STOREV32 ( Addr a, UWord vbits32, Bool isBigEndian )
             sm->vabits8[sm_off] = (UInt)VA_BITS8_UNDEFINED;
             return;
          }
-         PROF_EVENT(233, "mc_STOREV32-slow3");
+         PROF_EVENT(MCPE_STOREV32_SLOW3);
          mc_STOREVn_slow( a, 32, (ULong)vbits32, isBigEndian );
          return;
       }
 
-      PROF_EVENT(234, "mc_STOREV32-slow4");
+      PROF_EVENT(MCPE_STOREV32_SLOW4);
       mc_STOREVn_slow( a, 32, (ULong)vbits32, isBigEndian );
    }
 #endif
@@ -4606,13 +5219,14 @@ VG_REGPARM(2) void MC_(helperc_STOREV32le) ( Addr a, UWord vbits32 )
    mc_STOREV32(a, vbits32, False);
 }
 
-
-/* ------------------------ Size = 2 ------------------------ */
+/*------------------------------------------------------------*/
+/*--- LOADV16                                              ---*/
+/*------------------------------------------------------------*/
 
 static INLINE
 UWord mc_LOADV16 ( Addr a, Bool isBigEndian )
 {
-   PROF_EVENT(240, "mc_LOADV16");
+   PROF_EVENT(MCPE_LOADV16);
 
 #ifndef PERF_FAST_LOADV
    return (UWord)mc_LOADVn_slow( a, 16, isBigEndian );
@@ -4622,7 +5236,7 @@ UWord mc_LOADV16 ( Addr a, Bool isBigEndian )
       SecMap* sm;
 
       if (UNLIKELY( UNALIGNED_OR_HIGH(a,16) )) {
-         PROF_EVENT(241, "mc_LOADV16-slow1");
+         PROF_EVENT(MCPE_LOADV16_SLOW1);
          return (UWord)mc_LOADVn_slow( a, 16, isBigEndian );
       }
 
@@ -4642,7 +5256,7 @@ UWord mc_LOADV16 ( Addr a, Bool isBigEndian )
          else if (vabits4 == VA_BITS4_UNDEFINED) { return V_BITS16_UNDEFINED; }
          else {
             /* Slow case: the two bytes are not all-defined or all-undefined. */
-            PROF_EVENT(242, "mc_LOADV16-slow2");
+            PROF_EVENT(MCPE_LOADV16_SLOW2);
             return (UWord)mc_LOADVn_slow( a, 16, isBigEndian );
          }
       }
@@ -4650,14 +5264,121 @@ UWord mc_LOADV16 ( Addr a, Bool isBigEndian )
 #endif
 }
 
+// Generic for all platforms
 VG_REGPARM(1) UWord MC_(helperc_LOADV16be) ( Addr a )
 {
    return mc_LOADV16(a, True);
 }
+
+// Non-generic assembly for arm32-linux
+#if ENABLE_ASSEMBLY_HELPERS && defined(PERF_FAST_LOADV) \
+    && defined(VGP_arm_linux)
+__asm__( /* Derived from NCode template */
+".text                                  \n"
+".align 2                               \n"
+".global vgMemCheck_helperc_LOADV16le   \n"
+".type   vgMemCheck_helperc_LOADV16le, %function \n"
+"vgMemCheck_helperc_LOADV16le:          \n" //
+"      tst    r0, #1                    \n" // 
+"      bne    .LLV16LEc12               \n" // if misaligned
+"      lsr    r2, r0, #16               \n" // r2 = pri-map-ix
+"      movw   r3, #:lower16:primary_map \n" //
+"      uxth   r1, r0                    \n" // r1 = sec-map-offB
+"      movt   r3, #:upper16:primary_map \n" //
+"      ldr    r2, [r3, r2, lsl #2]      \n" // r2 = sec-map
+"      ldrb   r1, [r2, r1, lsr #2]      \n" // r1 = sec-map-VABITS8
+"      cmp    r1, #0xAA                 \n" // r1 == VA_BITS8_DEFINED?
+"      bne    .LLV16LEc0                \n" // no, goto .LLV16LEc0
+".LLV16LEh9:                            \n" //
+"      mov    r0, #0xFFFFFFFF           \n" //
+"      lsl    r0, r0, #16               \n" // V_BITS16_DEFINED | top16safe
+"      bx     lr                        \n" //
+".LLV16LEc0:                            \n" //
+"      cmp    r1, #0x55                 \n" // VA_BITS8_UNDEFINED
+"      bne    .LLV16LEc4                \n" //
+".LLV16LEc2:                            \n" //
+"      mov    r0, #0xFFFFFFFF           \n" // V_BITS16_UNDEFINED | top16safe
+"      bx     lr                        \n" //
+".LLV16LEc4:                            \n" //
+       // r1 holds sec-map-VABITS8.  r0 holds the address and is 2-aligned.
+       // Extract the relevant 4 bits and inspect.
+"      and    r2, r0, #2       \n" // addr & 2
+"      add    r2, r2, r2       \n" // 2 * (addr & 2)
+"      lsr    r1, r1, r2       \n" // sec-map-VABITS8 >> (2 * (addr & 2))
+"      and    r1, r1, #15      \n" // (sec-map-VABITS8 >> (2 * (addr & 2))) & 15
+
+"      cmp    r1, #0xA                  \n" // VA_BITS4_DEFINED
+"      beq    .LLV16LEh9                \n" //
+
+"      cmp    r1, #0x5                  \n" // VA_BITS4_UNDEFINED
+"      beq    .LLV16LEc2                \n" //
+
+".LLV16LEc12:                           \n" //
+"      push   {r4, lr}                  \n" //
+"      mov    r2, #0                    \n" //
+"      mov    r1, #16                   \n" //
+"      bl     mc_LOADVn_slow            \n" //
+"      pop    {r4, pc}                  \n" //
+".size vgMemCheck_helperc_LOADV16le, .-vgMemCheck_helperc_LOADV16le \n"
+".previous\n"
+);
+
+#elif ENABLE_ASSEMBLY_HELPERS && defined(PERF_FAST_LOADV) \
+      && (defined(VGP_x86_linux) || defined(VGP_x86_solaris))
+__asm__(
+".text\n"
+".align 16\n"
+".global vgMemCheck_helperc_LOADV16le\n"
+".type   vgMemCheck_helperc_LOADV16le, @function\n"
+"vgMemCheck_helperc_LOADV16le:\n"
+"      test   $0x1,  %eax\n"
+"      jne    .LLV16LE5\n"          /* jump if not aligned */
+"      mov    %eax,  %edx\n"
+"      shr    $0x10, %edx\n"
+"      mov    primary_map(,%edx,4), %ecx\n"
+"      movzwl %ax,   %edx\n"
+"      shr    $0x2,  %edx\n"
+"      movzbl (%ecx,%edx,1), %edx\n"/* edx = VA bits for 32bit */
+"      cmp    $0xaa, %edx\n"        /* compare to VA_BITS8_DEFINED */
+"      jne    .LLV16LE2\n"          /* jump if not all 32bits defined */
+".LLV16LE1:\n"
+"      mov    $0xffff0000,%eax\n"   /* V_BITS16_DEFINED | top16safe */
+"      ret\n"
+".LLV16LE2:\n"
+"      cmp    $0x55, %edx\n"        /* compare to VA_BITS8_UNDEFINED */
+"      jne    .LLV16LE4\n"          /* jump if not all 32bits undefined */
+".LLV16LE3:\n"
+"      or     $0xffffffff,%eax\n"   /* V_BITS16_UNDEFINED | top16safe */
+"      ret\n"
+".LLV16LE4:\n"
+"      mov    %eax,  %ecx\n"
+"      and    $0x2,  %ecx\n"
+"      add    %ecx,  %ecx\n"
+"      sar    %cl,   %edx\n"
+"      and    $0xf,  %edx\n"
+"      cmp    $0xa,  %edx\n"
+"      je     .LLV16LE1\n"          /* jump if all 16bits are defined */
+"      cmp    $0x5,  %edx\n"
+"      je     .LLV16LE3\n"          /* jump if all 16bits are undefined */
+".LLV16LE5:\n"
+"      xor    %ecx,  %ecx\n"        /* tail call mc_LOADVn_slow(a, 16, 0) */
+"      mov    $16,   %edx\n"
+"      jmp    mc_LOADVn_slow\n"
+".size vgMemCheck_helperc_LOADV16le, .-vgMemCheck_helperc_LOADV16le \n"
+".previous\n"
+);
+
+#else
+// Generic for all platforms except {arm32,x86}-linux and x86-solaris
 VG_REGPARM(1) UWord MC_(helperc_LOADV16le) ( Addr a )
 {
    return mc_LOADV16(a, False);
 }
+#endif
+
+/*------------------------------------------------------------*/
+/*--- STOREV16                                             ---*/
+/*------------------------------------------------------------*/
 
 /* True if the vabits4 in vabits8 indicate a and a+1 are accessible. */
 static INLINE
@@ -4675,7 +5396,7 @@ Bool accessible_vabits4_in_vabits8 ( Addr a, UChar vabits8 )
 static INLINE
 void mc_STOREV16 ( Addr a, UWord vbits16, Bool isBigEndian )
 {
-   PROF_EVENT(250, "mc_STOREV16");
+   PROF_EVENT(MCPE_STOREV16);
 
 #ifndef PERF_FAST_STOREV
    mc_STOREVn_slow( a, 16, (ULong)vbits16, isBigEndian );
@@ -4685,7 +5406,7 @@ void mc_STOREV16 ( Addr a, UWord vbits16, Bool isBigEndian )
       SecMap* sm;
 
       if (UNLIKELY( UNALIGNED_OR_HIGH(a,16) )) {
-         PROF_EVENT(251, "mc_STOREV16-slow1");
+         PROF_EVENT(MCPE_STOREV16_SLOW1);
          mc_STOREVn_slow( a, 16, (ULong)vbits16, isBigEndian );
          return;
       }
@@ -4706,7 +5427,7 @@ void mc_STOREV16 ( Addr a, UWord vbits16, Bool isBigEndian )
                                          &(sm->vabits8[sm_off]) );
             return;
          }
-         PROF_EVENT(232, "mc_STOREV16-slow2");
+         PROF_EVENT(MCPE_STOREV16_SLOW2);
          mc_STOREVn_slow( a, 16, (ULong)vbits16, isBigEndian );
       }
       if (V_BITS16_UNDEFINED == vbits16) {
@@ -4719,16 +5440,17 @@ void mc_STOREV16 ( Addr a, UWord vbits16, Bool isBigEndian )
                                          &(sm->vabits8[sm_off]) );
             return;
          }
-         PROF_EVENT(233, "mc_STOREV16-slow3");
+         PROF_EVENT(MCPE_STOREV16_SLOW3);
          mc_STOREVn_slow( a, 16, (ULong)vbits16, isBigEndian );
          return;
       }
 
-      PROF_EVENT(234, "mc_STOREV16-slow4");
+      PROF_EVENT(MCPE_STOREV16_SLOW4);
       mc_STOREVn_slow( a, 16, (ULong)vbits16, isBigEndian );
    }
 #endif
 }
+
 
 VG_REGPARM(2) void MC_(helperc_STOREV16be) ( Addr a, UWord vbits16 )
 {
@@ -4739,14 +5461,110 @@ VG_REGPARM(2) void MC_(helperc_STOREV16le) ( Addr a, UWord vbits16 )
    mc_STOREV16(a, vbits16, False);
 }
 
+/*------------------------------------------------------------*/
+/*--- LOADV8                                               ---*/
+/*------------------------------------------------------------*/
 
-/* ------------------------ Size = 1 ------------------------ */
 /* Note: endianness is irrelevant for size == 1 */
 
+// Non-generic assembly for arm32-linux
+#if ENABLE_ASSEMBLY_HELPERS && defined(PERF_FAST_LOADV) \
+    && defined(VGP_arm_linux)
+__asm__( /* Derived from NCode template */
+".text                                  \n"
+".align 2                               \n"
+".global vgMemCheck_helperc_LOADV8      \n"
+".type   vgMemCheck_helperc_LOADV8, %function \n"
+"vgMemCheck_helperc_LOADV8:             \n" //
+"      lsr    r2, r0, #16               \n" // r2 = pri-map-ix
+"      movw   r3, #:lower16:primary_map \n" //
+"      uxth   r1, r0                    \n" // r1 = sec-map-offB
+"      movt   r3, #:upper16:primary_map \n" //
+"      ldr    r2, [r3, r2, lsl #2]      \n" // r2 = sec-map
+"      ldrb   r1, [r2, r1, lsr #2]      \n" // r1 = sec-map-VABITS8
+"      cmp    r1, #0xAA                 \n" // r1 == VA_BITS8_DEFINED?
+"      bne    .LLV8c0                   \n" // no, goto .LLV8c0
+".LLV8h9:                               \n" //
+"      mov    r0, #0xFFFFFF00           \n" // V_BITS8_DEFINED | top24safe
+"      bx     lr                        \n" //
+".LLV8c0:                               \n" //
+"      cmp    r1, #0x55                 \n" // VA_BITS8_UNDEFINED
+"      bne    .LLV8c4                   \n" //
+".LLV8c2:                               \n" //
+"      mov    r0, #0xFFFFFFFF           \n" // V_BITS8_UNDEFINED | top24safe
+"      bx     lr                        \n" //
+".LLV8c4:                               \n" //
+       // r1 holds sec-map-VABITS8
+       // r0 holds the address.  Extract the relevant 2 bits and inspect.
+"      and    r2, r0, #3       \n" // addr & 3
+"      add    r2, r2, r2       \n" // 2 * (addr & 3)
+"      lsr    r1, r1, r2       \n" // sec-map-VABITS8 >> (2 * (addr & 3))
+"      and    r1, r1, #3       \n" // (sec-map-VABITS8 >> (2 * (addr & 3))) & 3
+
+"      cmp    r1, #2                    \n" // VA_BITS2_DEFINED
+"      beq    .LLV8h9                   \n" //
+
+"      cmp    r1, #1                    \n" // VA_BITS2_UNDEFINED
+"      beq    .LLV8c2                   \n" //
+
+"      push   {r4, lr}                  \n" //
+"      mov    r2, #0                    \n" //
+"      mov    r1, #8                    \n" //
+"      bl     mc_LOADVn_slow            \n" //
+"      pop    {r4, pc}                  \n" //
+".size vgMemCheck_helperc_LOADV8, .-vgMemCheck_helperc_LOADV8 \n"
+".previous\n"
+);
+
+/* Non-generic assembly for x86-linux */
+#elif ENABLE_ASSEMBLY_HELPERS && defined(PERF_FAST_LOADV) \
+      && (defined(VGP_x86_linux) || defined(VGP_x86_solaris))
+__asm__(
+".text\n"
+".align 16\n"
+".global vgMemCheck_helperc_LOADV8\n"
+".type   vgMemCheck_helperc_LOADV8, @function\n"
+"vgMemCheck_helperc_LOADV8:\n"
+"      mov    %eax,  %edx\n"
+"      shr    $0x10, %edx\n"
+"      mov    primary_map(,%edx,4), %ecx\n"
+"      movzwl %ax,   %edx\n"
+"      shr    $0x2,  %edx\n"
+"      movzbl (%ecx,%edx,1), %edx\n"/* edx = VA bits for 32bit */
+"      cmp    $0xaa, %edx\n"        /* compare to VA_BITS8_DEFINED? */
+"      jne    .LLV8LE2\n"           /* jump if not defined */
+".LLV8LE1:\n"
+"      mov    $0xffffff00, %eax\n"  /* V_BITS8_DEFINED | top24safe */
+"      ret\n"
+".LLV8LE2:\n"
+"      cmp    $0x55, %edx\n"        /* compare to VA_BITS8_UNDEFINED */
+"      jne    .LLV8LE4\n"           /* jump if not all 32bits are undefined */
+".LLV8LE3:\n"
+"      or     $0xffffffff, %eax\n"  /* V_BITS8_UNDEFINED | top24safe */
+"      ret\n"
+".LLV8LE4:\n"
+"      mov    %eax,  %ecx\n"
+"      and    $0x3,  %ecx\n"
+"      add    %ecx,  %ecx\n"
+"      sar    %cl,   %edx\n"
+"      and    $0x3,  %edx\n"
+"      cmp    $0x2,  %edx\n"
+"      je     .LLV8LE1\n"           /* jump if all 8bits are defined */
+"      cmp    $0x1,  %edx\n"
+"      je     .LLV8LE3\n"           /* jump if all 8bits are undefined */
+"      xor    %ecx,  %ecx\n"        /* tail call to mc_LOADVn_slow(a, 8, 0) */
+"      mov    $0x8,  %edx\n"
+"      jmp    mc_LOADVn_slow\n"
+".size vgMemCheck_helperc_LOADV8, .-vgMemCheck_helperc_LOADV8\n"
+".previous\n"
+);
+
+#else
+// Generic for all platforms except {arm32,x86}-linux and x86-solaris
 VG_REGPARM(1)
 UWord MC_(helperc_LOADV8) ( Addr a )
 {
-   PROF_EVENT(260, "mc_LOADV8");
+   PROF_EVENT(MCPE_LOADV8);
 
 #ifndef PERF_FAST_LOADV
    return (UWord)mc_LOADVn_slow( a, 8, False/*irrelevant*/ );
@@ -4756,7 +5574,7 @@ UWord MC_(helperc_LOADV8) ( Addr a )
       SecMap* sm;
 
       if (UNLIKELY( UNALIGNED_OR_HIGH(a,8) )) {
-         PROF_EVENT(261, "mc_LOADV8-slow1");
+         PROF_EVENT(MCPE_LOADV8_SLOW1);
          return (UWord)mc_LOADVn_slow( a, 8, False/*irrelevant*/ );
       }
 
@@ -4776,19 +5594,23 @@ UWord MC_(helperc_LOADV8) ( Addr a )
          else if (vabits2 == VA_BITS2_UNDEFINED) { return V_BITS8_UNDEFINED; }
          else {
             /* Slow case: the byte is not all-defined or all-undefined. */
-            PROF_EVENT(262, "mc_LOADV8-slow2");
+            PROF_EVENT(MCPE_LOADV8_SLOW2);
             return (UWord)mc_LOADVn_slow( a, 8, False/*irrelevant*/ );
          }
       }
    }
 #endif
 }
+#endif
 
+/*------------------------------------------------------------*/
+/*--- STOREV8                                              ---*/
+/*------------------------------------------------------------*/
 
 VG_REGPARM(2)
 void MC_(helperc_STOREV8) ( Addr a, UWord vbits8 )
 {
-   PROF_EVENT(270, "mc_STOREV8");
+   PROF_EVENT(MCPE_STOREV8);
 
 #ifndef PERF_FAST_STOREV
    mc_STOREVn_slow( a, 8, (ULong)vbits8, False/*irrelevant*/ );
@@ -4798,7 +5620,7 @@ void MC_(helperc_STOREV8) ( Addr a, UWord vbits8 )
       SecMap* sm;
 
       if (UNLIKELY( UNALIGNED_OR_HIGH(a,8) )) {
-         PROF_EVENT(271, "mc_STOREV8-slow1");
+         PROF_EVENT(MCPE_STOREV8_SLOW1);
          mc_STOREVn_slow( a, 8, (ULong)vbits8, False/*irrelevant*/ );
          return;
       }
@@ -4854,7 +5676,7 @@ void MC_(helperc_STOREV8) ( Addr a, UWord vbits8 )
                                          &(sm->vabits8[sm_off]) );
             return;
          }
-         PROF_EVENT(232, "mc_STOREV8-slow2");
+         PROF_EVENT(MCPE_STOREV8_SLOW2);
          mc_STOREVn_slow( a, 8, (ULong)vbits8, False/*irrelevant*/ );
          return;
       }
@@ -4870,13 +5692,13 @@ void MC_(helperc_STOREV8) ( Addr a, UWord vbits8 )
                                          &(sm->vabits8[sm_off]) );
             return;
          }
-         PROF_EVENT(233, "mc_STOREV8-slow3");
+         PROF_EVENT(MCPE_STOREV8_SLOW3);
          mc_STOREVn_slow( a, 8, (ULong)vbits8, False/*irrelevant*/ );
          return;
       }
 
       // Partially defined word
-      PROF_EVENT(234, "mc_STOREV8-slow4");
+      PROF_EVENT(MCPE_STOREV8_SLOW4);
       mc_STOREVn_slow( a, 8, (ULong)vbits8, False/*irrelevant*/ );
    }
 #endif
@@ -5087,7 +5909,7 @@ static void init_shadow_memory ( void )
 static Bool mc_cheap_sanity_check ( void )
 {
    n_sanity_cheap++;
-   PROF_EVENT(490, "cheap_sanity_check");
+   PROF_EVENT(MCPE_CHEAP_SANITY_CHECK);
    /* Check for sane operating level */
    if (MC_(clo_mc_level) < 1 || MC_(clo_mc_level) > 3)
       return False;
@@ -5107,7 +5929,7 @@ static Bool mc_expensive_sanity_check ( void )
    if (0) return True;
 
    n_sanity_expensive++;
-   PROF_EVENT(491, "expensive_sanity_check");
+   PROF_EVENT(MCPE_EXPENSIVE_SANITY_CHECK);
 
    /* Check for sane operating level */
    if (MC_(clo_mc_level) < 1 || MC_(clo_mc_level) > 3)
@@ -5192,28 +6014,30 @@ static Bool mc_expensive_sanity_check ( void )
 /*--- Command line args                                    ---*/
 /*------------------------------------------------------------*/
 
-/* --partial-loads-ok: enable by default on MacOS.  The MacOS system
-   graphics libraries are heavily vectorised, and not enabling this by
-   default causes lots of false errors. */
-#if defined(VGO_darwin)
+/* 31 Aug 2015: Vectorised code is now so widespread that
+   --partial-loads-ok needs to be enabled by default on all platforms.
+   Not doing so causes lots of false errors. */
 Bool          MC_(clo_partial_loads_ok)       = True;
-#else
-Bool          MC_(clo_partial_loads_ok)       = False;
-#endif
-
 Long          MC_(clo_freelist_vol)           = 20*1000*1000LL;
 Long          MC_(clo_freelist_big_blocks)    =  1*1000*1000LL;
 LeakCheckMode MC_(clo_leak_check)             = LC_Summary;
 VgRes         MC_(clo_leak_resolution)        = Vg_HighRes;
 UInt          MC_(clo_show_leak_kinds)        = R2S(Possible) | R2S(Unreached);
 UInt          MC_(clo_error_for_leak_kinds)   = R2S(Possible) | R2S(Unreached);
-UInt          MC_(clo_leak_check_heuristics)  = 0;
+UInt          MC_(clo_leak_check_heuristics)  =   H2S(LchStdString)
+                                                | H2S( LchLength64)
+                                                | H2S( LchNewArray)
+                                                | H2S( LchMultipleInheritance);
 Bool          MC_(clo_workaround_gcc296_bugs) = False;
 Int           MC_(clo_malloc_fill)            = -1;
 Int           MC_(clo_free_fill)              = -1;
-KeepStacktraces MC_(clo_keep_stacktraces)     = KS_alloc_then_free;
+KeepStacktraces MC_(clo_keep_stacktraces)     = KS_alloc_and_free;
 Int           MC_(clo_mc_level)               = 2;
 Bool          MC_(clo_show_mismatched_frees)  = True;
+Bool          MC_(clo_expensive_definedness_checks) = False;
+Bool          MC_(clo_ignore_range_below_sp)               = False;
+UInt          MC_(clo_ignore_range_below_sp__first_offset) = 0;
+UInt          MC_(clo_ignore_range_below_sp__last_offset)  = 0;
 
 static const HChar * MC_(parse_leak_heuristics_tokens) =
    "-,stdstring,length64,newarray,multipleinheritance";
@@ -5323,7 +6147,7 @@ static Bool mc_process_cmd_line_options(const HChar* arg)
          return False;
       }
       if (gIgnoredAddressRanges) {
-         Word i;
+         UInt i;
          for (i = 0; i < VG_(sizeRangeMap)(gIgnoredAddressRanges); i++) {
             UWord val     = IAR_INVALID;
             UWord key_min = ~(UWord)0;
@@ -5332,16 +6156,58 @@ static Bool mc_process_cmd_line_options(const HChar* arg)
                                 gIgnoredAddressRanges, i );
             tl_assert(key_min <= key_max);
             UWord limit = 0x4000000; /* 64M - entirely arbitrary limit */
-            if (key_max - key_min > limit) {
+            if (key_max - key_min > limit && val == IAR_CommandLine) {
                VG_(message)(Vg_DebugMsg, 
                   "ERROR: --ignore-ranges: suspiciously large range:\n");
                VG_(message)(Vg_DebugMsg, 
-                   "       0x%lx-0x%lx (size %ld)\n", key_min, key_max,
+                   "       0x%lx-0x%lx (size %lu)\n", key_min, key_max,
                    key_max - key_min + 1);
                return False;
             }
          }
       }
+   }
+
+   else if VG_STR_CLO(arg, "--ignore-range-below-sp", tmp_str) {
+      /* This seems at first a bit weird, but: in order to imply
+         a non-wrapped-around address range, the first offset needs to be
+         larger than the second one.  For example
+            --ignore-range-below-sp=8192,8189
+         would cause accesses to in the range [SP-8192, SP-8189] to be
+         ignored. */
+      UInt offs1 = 0, offs2 = 0;
+      Bool ok = parse_UInt_pair(&tmp_str, &offs1, &offs2);
+      // Ensure we used all the text after the '=' sign.
+      if (ok && *tmp_str != 0) ok = False;
+      if (!ok) {
+         VG_(message)(Vg_DebugMsg, 
+                      "ERROR: --ignore-range-below-sp: invalid syntax. "
+                      " Expected \"...=decimalnumber-decimalnumber\".\n");
+         return False;
+      }  
+      if (offs1 > 1000*1000 /*arbitrary*/ || offs2 > 1000*1000 /*ditto*/) {
+         VG_(message)(Vg_DebugMsg, 
+                      "ERROR: --ignore-range-below-sp: suspiciously large "
+                      "offset(s): %u and %u\n", offs1, offs2);
+         return False;
+      }
+      if (offs1 <= offs2) {
+         VG_(message)(Vg_DebugMsg, 
+                      "ERROR: --ignore-range-below-sp: invalid offsets "
+                      "(the first must be larger): %u and %u\n", offs1, offs2);
+         return False;
+      }
+      tl_assert(offs1 > offs2);
+      if (offs1 - offs2 > 4096 /*arbitrary*/) {
+         VG_(message)(Vg_DebugMsg, 
+                      "ERROR: --ignore-range-below-sp: suspiciously large "
+                      "range: %u-%u (size %u)\n", offs1, offs2, offs1 - offs2);
+         return False;
+      }
+      MC_(clo_ignore_range_below_sp) = True;
+      MC_(clo_ignore_range_below_sp__first_offset) = offs1;
+      MC_(clo_ignore_range_below_sp__last_offset)  = offs2;
+      return True;
    }
 
    else if VG_BHEX_CLO(arg, "--malloc-fill", MC_(clo_malloc_fill), 0x00,0xFF) {}
@@ -5360,6 +6226,8 @@ static Bool mc_process_cmd_line_options(const HChar* arg)
 
    else if VG_BOOL_CLO(arg, "--show-mismatched-frees",
                        MC_(clo_show_mismatched_frees)) {}
+   else if VG_BOOL_CLO(arg, "--expensive-definedness-checks",
+                       MC_(clo_expensive_definedness_checks)) {}
 
    else
       return VG_(replacement_malloc_process_cmd_line_option)(arg);
@@ -5374,11 +6242,6 @@ static Bool mc_process_cmd_line_options(const HChar* arg)
 
 static void mc_print_usage(void)
 {
-   const HChar* plo_default = "no";
-#  if defined(VGO_darwin)
-   plo_default = "yes";
-#  endif
-
    VG_(printf)(
 "    --leak-check=no|summary|full     search for memory leaks at exit?  [summary]\n"
 "    --leak-resolution=low|med|high   differentiation of leak stack traces [high]\n"
@@ -5389,7 +6252,7 @@ static void mc_print_usage(void)
 "        where kind is one of:\n"
 "          definite indirect possible reachable all none\n"
 "    --leak-check-heuristics=heur1,heur2,... which heuristics to use for\n"
-"        improving leak search false positive [none]\n"
+"        improving leak search false positive [all]\n"
 "        where heur is one of:\n"
 "          stdstring length64 newarray multipleinheritance all none\n"
 "    --show-reachable=yes             same as --show-leak-kinds=all\n"
@@ -5399,17 +6262,21 @@ static void mc_print_usage(void)
 "                                     same as --show-leak-kinds=definite\n"
 "    --undef-value-errors=no|yes      check for undefined value errors [yes]\n"
 "    --track-origins=no|yes           show origins of undefined values? [no]\n"
-"    --partial-loads-ok=no|yes        too hard to explain here; see manual [%s]\n"
+"    --partial-loads-ok=no|yes        too hard to explain here; see manual [yes]\n"
+"    --expensive-definedness-checks=no|yes\n"
+"                                     Use extra-precise definedness tracking [no]\n"
 "    --freelist-vol=<number>          volume of freed blocks queue     [20000000]\n"
 "    --freelist-big-blocks=<number>   releases first blocks with size>= [1000000]\n"
-"    --workaround-gcc296-bugs=no|yes  self explanatory [no]\n"
+"    --workaround-gcc296-bugs=no|yes  self explanatory [no].  Deprecated.\n"
+"                                     Use --ignore-range-below-sp instead.\n"
 "    --ignore-ranges=0xPP-0xQQ[,0xRR-0xSS]   assume given addresses are OK\n"
+"    --ignore-range-below-sp=<number>-<number>  do not report errors for\n"
+"                                     accesses at the given offsets below SP\n"
 "    --malloc-fill=<hexnumber>        fill malloc'd areas with given value\n"
 "    --free-fill=<hexnumber>          fill free'd areas with given value\n"
 "    --keep-stacktraces=alloc|free|alloc-and-free|alloc-then-free|none\n"
-"        stack trace(s) to keep for malloc'd/free'd areas       [alloc-then-free]\n"
+"        stack trace(s) to keep for malloc'd/free'd areas       [alloc-and-free]\n"
 "    --show-mismatched-frees=no|yes   show frees that don't match the allocator? [yes]\n"
-, plo_default
    );
 }
 
@@ -5513,10 +6380,14 @@ static void print_monitor_help ( void )
       (
 "\n"
 "memcheck monitor commands:\n"
-"  get_vbits <addr> [<len>]\n"
-"        returns validity bits for <len> (or 1) bytes at <addr>\n"
+"  xb <addr> [<len>]\n"
+"        prints validity bits for <len> (or 1) bytes at <addr>\n"
 "            bit values 0 = valid, 1 = invalid, __ = unaddressable byte\n"
-"        Example: get_vbits 0x8049c78 10\n"
+"        Then prints the bytes values below the corresponding validity bits\n"
+"        in a layout similar to the gdb command 'x /<len>xb <addr>'\n"
+"        Example: xb 0x8049c78 10\n"
+"  get_vbits <addr> [<len>]\n"
+"        Similar to xb, but only prints the validity bytes by group of 4.\n"
 "  make_memory [noaccess|undefined\n"
 "                     |defined|Definedifaddressable] <addr> [<len>]\n"
 "        mark <len> (or 1) bytes at <addr> with the given accessibility\n"
@@ -5537,8 +6408,13 @@ static void print_monitor_help ( void )
 "                 leak_check summary any\n"
 "                 leak_check full kinds indirect,possible\n"
 "                 leak_check full reachable any limited 100\n"
-"  block_list <loss_record_nr>\n"
+"  block_list <loss_record_nr>|<loss_record_nr_from>..<loss_record_nr_to>\n"
+"                [unlimited*|limited <max_blocks>]\n"
+"                [heuristics heur1,heur2,...]\n"
 "        after a leak search, shows the list of blocks of <loss_record_nr>\n"
+"        (or of the range <loss_record_nr_from>..<loss_record_nr_to>).\n"
+"        With heuristics, only shows the blocks found via heur1,heur2,...\n"
+"            * = defaults\n"
 "  who_points_at <addr> [<len>]\n"
 "        shows places pointing inside <len> (default 1) bytes at <addr>\n"
 "        (with len 1, only shows \"start pointers\" pointing exactly to <addr>,\n"
@@ -5546,11 +6422,108 @@ static void print_monitor_help ( void )
 "\n");
 }
 
+/* Print szB bytes at address, with a format similar to the gdb command
+   x /<szB>xb address.
+   res[i] == 1 indicates the corresponding byte is addressable. */
+static void gdb_xb (Addr address, SizeT szB, Int res[])
+{
+   UInt i;
+
+   for (i = 0; i < szB; i++) {
+      UInt bnr = i % 8;
+      if (bnr == 0) {
+         if (i != 0)
+            VG_(printf) ("\n"); // Terminate previous line
+         VG_(printf) ("%p:", (void*)(address+i));
+      }
+      if (res[i] == 1)
+         VG_(printf) ("\t0x%02x", *(UChar*)(address+i));
+      else
+         VG_(printf) ("\t0x??");
+   }
+   VG_(printf) ("\n"); // Terminate previous line
+}
+
+
+/* Returns the address of the next non space character,
+   or address of the string terminator. */
+static HChar* next_non_space (HChar *s)
+{
+   while (*s && *s == ' ')
+      s++;
+   return s;
+}
+
+/* Parse an integer slice, i.e. a single integer or a range of integer.
+   Syntax is:
+       <integer>[..<integer> ]
+   (spaces are allowed before and/or after ..).
+   Return True if range correctly parsed, False otherwise. */
+static Bool VG_(parse_slice) (HChar* s, HChar** saveptr,
+                              UInt *from, UInt *to)
+{
+   HChar* wl;
+   HChar *endptr;
+   endptr = NULL;////
+   wl = VG_(strtok_r) (s, " ", saveptr);
+
+   /* slice must start with an integer. */
+   if (wl == NULL) {
+      VG_(gdb_printf) ("expecting integer or slice <from>..<to>\n");
+      return False;
+   }
+   *from = VG_(strtoull10) (wl, &endptr);
+   if (endptr == wl) {
+      VG_(gdb_printf) ("invalid integer or slice <from>..<to>\n");
+      return False;
+   }
+
+   if (*endptr == '\0' && *next_non_space(*saveptr) != '.') {
+      /* wl token is an integer terminating the string
+         or else next token does not start with .
+         In both cases, the slice is a single integer. */
+      *to = *from;
+      return True;
+   }
+
+   if (*endptr == '\0') {
+      // iii ..    => get the next token
+      wl =  VG_(strtok_r) (NULL, " .", saveptr);
+   } else {
+      // It must be iii..
+      if (*endptr != '.' && *(endptr+1) != '.') {
+         VG_(gdb_printf) ("expecting slice <from>..<to>\n");
+         return False;
+      }
+      if ( *(endptr+2) == ' ') {
+         // It must be iii.. jjj  => get the next token
+         wl =  VG_(strtok_r) (NULL, " .", saveptr);
+      } else {
+         // It must be iii..jjj
+         wl = endptr+2;
+      }
+   }
+
+   *to = VG_(strtoull10) (wl, &endptr);
+   if (*endptr != '\0') {
+      VG_(gdb_printf) ("missing/wrong 'to' of slice <from>..<to>\n");
+      return False;
+   }
+
+   if (*from > *to) {
+      VG_(gdb_printf) ("<from> cannot be bigger than <to> "
+                       "in slice <from>..<to>\n");
+      return False;
+   }
+
+   return True;
+}
+
 /* return True if request recognised, False otherwise */
 static Bool handle_gdb_monitor_command (ThreadId tid, HChar *req)
 {
    HChar* wcmd;
-   HChar s[VG_(strlen(req)) + 1]; /* copy for strtok_r */
+   HChar s[VG_(strlen)(req) + 1]; /* copy for strtok_r */
    HChar *ssaveptr;
 
    VG_(strcpy) (s, req);
@@ -5561,7 +6534,7 @@ static Bool handle_gdb_monitor_command (ThreadId tid, HChar *req)
       command. This ensures a shorter abbreviation for the user. */
    switch (VG_(keyword_id) 
            ("help get_vbits leak_check make_memory check_memory "
-            "block_list who_points_at", 
+            "block_list who_points_at xb", 
             wcmd, kwd_report_duplicated_matches)) {
    case -2: /* multiple matches */
       return True;
@@ -5599,7 +6572,7 @@ static Bool handle_gdb_monitor_command (ThreadId tid, HChar *req)
          VG_(printf) ("\n");
          if (unaddressable) {
             VG_(printf)
-               ("Address %p len %ld has %d bytes unaddressable\n",
+               ("Address %p len %lu has %d bytes unaddressable\n",
                 (void *)address, szB, unaddressable);
          }
       }
@@ -5694,8 +6667,8 @@ static Bool handle_gdb_monitor_command (ThreadId tid, HChar *req)
             else if (int_value > 0)
                lcp.max_loss_records_output = (UInt) int_value;
             else
-               VG_(gdb_printf) ("max_loss_records_output must be >= 1, got %d\n",
-                                int_value);
+               VG_(gdb_printf) ("max_loss_records_output must be >= 1,"
+                                " got %d\n", int_value);
             break;
          }
          default:
@@ -5749,11 +6722,11 @@ static Bool handle_gdb_monitor_command (ThreadId tid, HChar *req)
       case -1: break;
       case  0: /* addressable */
          if (is_mem_addressable ( address, szB, &bad_addr ))
-            VG_(printf) ("Address %p len %ld addressable\n", 
+            VG_(printf) ("Address %p len %lu addressable\n", 
                              (void *)address, szB);
          else
             VG_(printf)
-               ("Address %p len %ld not addressable:\nbad address %p\n",
+               ("Address %p len %lu not addressable:\nbad address %p\n",
                 (void *)address, szB, (void *) bad_addr);
          MC_(pp_describe_addr) (address);
          break;
@@ -5761,7 +6734,7 @@ static Bool handle_gdb_monitor_command (ThreadId tid, HChar *req)
          res = is_mem_defined ( address, szB, &bad_addr, &otag );
          if (MC_AddrErr == res)
             VG_(printf)
-               ("Address %p len %ld not addressable:\nbad address %p\n",
+               ("Address %p len %lu not addressable:\nbad address %p\n",
                 (void *)address, szB, (void *) bad_addr);
          else if (MC_ValueErr == res) {
             okind = otag & 3;
@@ -5777,7 +6750,7 @@ static Bool handle_gdb_monitor_command (ThreadId tid, HChar *req)
             default: tl_assert(0);
             }
             VG_(printf) 
-               ("Address %p len %ld not defined:\n"
+               ("Address %p len %lu not defined:\n"
                 "Uninitialised value at %p%s\n",
                 (void *)address, szB, (void *) bad_addr, src);
             ecu = otag & ~3;
@@ -5787,7 +6760,7 @@ static Bool handle_gdb_monitor_command (ThreadId tid, HChar *req)
             }
          }
          else
-            VG_(printf) ("Address %p len %ld defined\n",
+            VG_(printf) ("Address %p len %lu defined\n",
                          (void *)address, szB);
          MC_(pp_describe_addr) (address);
          break;
@@ -5798,16 +6771,63 @@ static Bool handle_gdb_monitor_command (ThreadId tid, HChar *req)
 
    case  5: { /* block_list */
       HChar* wl;
-      HChar *endptr;
-      UInt lr_nr = 0;
-      wl = VG_(strtok_r) (NULL, " ", &ssaveptr);
-      if (wl != NULL)
-         lr_nr = VG_(strtoull10) (wl, &endptr);
-      if (wl == NULL || *endptr != '\0') {
-         VG_(gdb_printf) ("malformed or missing integer\n");
-      } else {
-         // lr_nr-1 as what is shown to the user is 1 more than the index in lr_array.
-         if (lr_nr == 0 || ! MC_(print_block_list) (lr_nr-1))
+      HChar *the_end;
+      UInt lr_nr_from = 0;
+      UInt lr_nr_to = 0;
+
+      if (VG_(parse_slice) (NULL, &ssaveptr, &lr_nr_from, &lr_nr_to)) {
+         UInt limit_blocks = 999999999;
+         Int int_value;
+         UInt heuristics = 0;
+         
+         for (wl = VG_(strtok_r) (NULL, " ", &ssaveptr);
+              wl != NULL;
+              wl = VG_(strtok_r) (NULL, " ", &ssaveptr)) {
+            switch (VG_(keyword_id) ("unlimited limited heuristics ", 
+                                     wl,  kwd_report_all)) {
+            case -2: return True;
+            case -1: return True;
+            case  0: /* unlimited */
+               limit_blocks = 999999999; break;
+            case  1: /* limited */
+               wcmd = VG_(strtok_r) (NULL, " ", &ssaveptr);
+               if (wcmd == NULL) {
+                  VG_(gdb_printf) ("missing integer value\n");
+                  return True;
+               }
+               int_value = VG_(strtoll10) (wcmd, &the_end);
+               if (*the_end != '\0') {
+                  VG_(gdb_printf) ("malformed integer value\n");
+                  return True;
+               }
+               if (int_value <= 0) {
+                  VG_(gdb_printf) ("max_blocks must be >= 1,"
+                                   " got %d\n", int_value);
+                  return True;
+               }
+               limit_blocks = (UInt) int_value;
+               break;
+            case  2: /* heuristics */
+               wcmd = VG_(strtok_r) (NULL, " ", &ssaveptr);
+               if (wcmd == NULL 
+                   || !VG_(parse_enum_set)(MC_(parse_leak_heuristics_tokens),
+                                           True,/*allow_all*/
+                                           wcmd,
+                                           &heuristics)) {
+                  VG_(gdb_printf) ("missing or malformed heuristics set\n");
+                  return True;
+               }
+               break;
+            default:
+               tl_assert (0);
+            }
+         }
+         /* substract 1 from lr_nr_from/lr_nr_to  as what is shown to the user
+            is 1 more than the index in lr_array. */
+         if (lr_nr_from == 0 || ! MC_(print_block_list) (lr_nr_from-1,
+                                                         lr_nr_to-1,
+                                                         limit_blocks,
+                                                         heuristics))
             VG_(gdb_printf) ("invalid loss record nr\n");
       }
       return True;
@@ -5824,6 +6844,52 @@ static Bool handle_gdb_monitor_command (ThreadId tid, HChar *req)
          return True;
       }
       MC_(who_points_at) (address, szB);
+      return True;
+   }
+
+   case  7: { /* xb */
+      Addr address;
+      SizeT szB = 1;
+      if (VG_(strtok_get_address_and_size) (&address, &szB, &ssaveptr)) {
+         UChar vbits[8];
+         Int res[8];
+         Int i;
+         Int unaddressable = 0;
+         for (i = 0; i < szB; i++) {
+            Int bnr = i % 8;
+            res[bnr] = mc_get_or_set_vbits_for_client 
+               (address+i, (Addr) &vbits[bnr], 1, 
+                False, /* get them */
+                False  /* is client request */ ); 
+            /* We going to print the first vabits of a new line.
+               Terminate the previous line if needed: prints a line with the
+               address and the data. */
+            if (bnr == 0) {
+               if (i != 0) {
+                  VG_(printf) ("\n");
+                  gdb_xb (address + i - 8, 8, res);
+               }
+               VG_(printf) ("\t"); // To align VABITS with gdb_xb layout
+            }
+            if (res[bnr] == 1) {
+               VG_(printf) ("\t  %02x", vbits[bnr]);
+            } else {
+               tl_assert(3 == res[bnr]);
+               unaddressable++;
+               VG_(printf) ("\t  __");
+            }
+         }
+         VG_(printf) ("\n");
+         if (szB % 8 == 0 && szB > 0)
+            gdb_xb (address + szB - 8, 8, res);
+         else
+            gdb_xb (address + szB - szB % 8, szB % 8, res);
+         if (unaddressable) {
+            VG_(printf)
+               ("Address %p len %lu has %d bytes unaddressable\n",
+                (void *)address, szB, unaddressable);
+         }
+      }
       return True;
    }
 
@@ -6085,8 +7151,13 @@ static Bool mc_handle_client_request ( ThreadId tid, UWord* arg, UWord* ret )
          Addr pool      = (Addr)arg[1];
          UInt rzB       =       arg[2];
          Bool is_zeroed = (Bool)arg[3];
+         UInt flags     =       arg[4];
 
-         MC_(create_mempool) ( pool, rzB, is_zeroed );
+         // The create_mempool function does not know these mempool flags,
+         // pass as booleans.
+         MC_(create_mempool) ( pool, rzB, is_zeroed, 
+                               (flags & VALGRIND_MEMPOOL_AUTO_FREE),
+                               (flags & VALGRIND_MEMPOOL_METAPOOL) );
          return True;
       }
 
@@ -6188,33 +7259,168 @@ static Bool mc_handle_client_request ( ThreadId tid, UWord* arg, UWord* ret )
 
 #ifdef MC_PROFILE_MEMORY
 
-UInt   MC_(event_ctr)[N_PROF_EVENTS];
-HChar* MC_(event_ctr_name)[N_PROF_EVENTS];
+ULong  MC_(event_ctr)[MCPE_LAST];
+
+/* Event counter names. Use the name of the function that increases the
+   event counter. Drop any MC_() and mc_ prefices. */
+static const HChar* MC_(event_ctr_name)[MCPE_LAST] = {
+   [MCPE_LOADVN_SLOW] = "LOADVn_slow",
+   [MCPE_LOADVN_SLOW_LOOP] = "LOADVn_slow_loop",
+   [MCPE_STOREVN_SLOW] = "STOREVn_slow",
+   [MCPE_STOREVN_SLOW_LOOP] = "STOREVn_slow(loop)",
+   [MCPE_MAKE_ALIGNED_WORD32_UNDEFINED] = "make_aligned_word32_undefined",
+   [MCPE_MAKE_ALIGNED_WORD32_UNDEFINED_SLOW] = 
+        "make_aligned_word32_undefined_slow",
+   [MCPE_MAKE_ALIGNED_WORD64_UNDEFINED] = "make_aligned_word64_undefined",
+   [MCPE_MAKE_ALIGNED_WORD64_UNDEFINED_SLOW] = 
+        "make_aligned_word64_undefined_slow",
+   [MCPE_MAKE_ALIGNED_WORD32_NOACCESS] = "make_aligned_word32_noaccess",
+   [MCPE_MAKE_ALIGNED_WORD32_NOACCESS_SLOW] =
+         "make_aligned_word32_noaccess_slow",
+   [MCPE_MAKE_ALIGNED_WORD64_NOACCESS] = "make_aligned_word64_noaccess",
+   [MCPE_MAKE_ALIGNED_WORD64_NOACCESS_SLOW] =
+        "make_aligned_word64_noaccess_slow",
+   [MCPE_MAKE_MEM_NOACCESS] = "make_mem_noaccess",
+   [MCPE_MAKE_MEM_UNDEFINED] = "make_mem_undefined",
+   [MCPE_MAKE_MEM_UNDEFINED_W_OTAG] = "make_mem_undefined_w_otag",
+   [MCPE_MAKE_MEM_DEFINED] = "make_mem_defined",
+   [MCPE_CHEAP_SANITY_CHECK] = "cheap_sanity_check",
+   [MCPE_EXPENSIVE_SANITY_CHECK] = "expensive_sanity_check",
+   [MCPE_COPY_ADDRESS_RANGE_STATE] = "copy_address_range_state",
+   [MCPE_COPY_ADDRESS_RANGE_STATE_LOOP1] = "copy_address_range_state(loop1)",
+   [MCPE_COPY_ADDRESS_RANGE_STATE_LOOP2] = "copy_address_range_state(loop2)",
+   [MCPE_CHECK_MEM_IS_NOACCESS] = "check_mem_is_noaccess",
+   [MCPE_CHECK_MEM_IS_NOACCESS_LOOP] = "check_mem_is_noaccess(loop)",
+   [MCPE_IS_MEM_ADDRESSABLE] = "is_mem_addressable",
+   [MCPE_IS_MEM_ADDRESSABLE_LOOP] = "is_mem_addressable(loop)",
+   [MCPE_IS_MEM_DEFINED] = "is_mem_defined",
+   [MCPE_IS_MEM_DEFINED_LOOP] = "is_mem_defined(loop)",
+   [MCPE_IS_MEM_DEFINED_COMPREHENSIVE] = "is_mem_defined_comprehensive",
+   [MCPE_IS_MEM_DEFINED_COMPREHENSIVE_LOOP] =
+        "is_mem_defined_comprehensive(loop)",
+   [MCPE_IS_DEFINED_ASCIIZ] = "is_defined_asciiz",
+   [MCPE_IS_DEFINED_ASCIIZ_LOOP] = "is_defined_asciiz(loop)",
+   [MCPE_FIND_CHUNK_FOR_OLD] = "find_chunk_for_OLD",
+   [MCPE_FIND_CHUNK_FOR_OLD_LOOP] = "find_chunk_for_OLD(loop)",
+   [MCPE_SET_ADDRESS_RANGE_PERMS] = "set_address_range_perms",
+   [MCPE_SET_ADDRESS_RANGE_PERMS_SINGLE_SECMAP] =
+        "set_address_range_perms(single-secmap)",
+   [MCPE_SET_ADDRESS_RANGE_PERMS_STARTOF_SECMAP] =
+        "set_address_range_perms(startof-secmap)",
+   [MCPE_SET_ADDRESS_RANGE_PERMS_MULTIPLE_SECMAPS] =
+   "set_address_range_perms(multiple-secmaps)",
+   [MCPE_SET_ADDRESS_RANGE_PERMS_DIST_SM1] =
+        "set_address_range_perms(dist-sm1)",
+   [MCPE_SET_ADDRESS_RANGE_PERMS_DIST_SM2] =
+        "set_address_range_perms(dist-sm2)",
+   [MCPE_SET_ADDRESS_RANGE_PERMS_DIST_SM1_QUICK] =
+        "set_address_range_perms(dist-sm1-quick)",
+   [MCPE_SET_ADDRESS_RANGE_PERMS_DIST_SM2_QUICK] =
+        "set_address_range_perms(dist-sm2-quick)",
+   [MCPE_SET_ADDRESS_RANGE_PERMS_LOOP1A] = "set_address_range_perms(loop1a)",
+   [MCPE_SET_ADDRESS_RANGE_PERMS_LOOP1B] = "set_address_range_perms(loop1b)",
+   [MCPE_SET_ADDRESS_RANGE_PERMS_LOOP1C] = "set_address_range_perms(loop1c)",
+   [MCPE_SET_ADDRESS_RANGE_PERMS_LOOP8A] = "set_address_range_perms(loop8a)",
+   [MCPE_SET_ADDRESS_RANGE_PERMS_LOOP8B] = "set_address_range_perms(loop8b)",
+   [MCPE_SET_ADDRESS_RANGE_PERMS_LOOP64K] = "set_address_range_perms(loop64K)",
+   [MCPE_SET_ADDRESS_RANGE_PERMS_LOOP64K_FREE_DIST_SM] =
+        "set_address_range_perms(loop64K-free-dist-sm)",
+   [MCPE_LOADV_128_OR_256_SLOW_LOOP] = "LOADV_128_or_256_slow(loop)",
+   [MCPE_LOADV_128_OR_256]       = "LOADV_128_or_256",
+   [MCPE_LOADV_128_OR_256_SLOW1] = "LOADV_128_or_256-slow1",
+   [MCPE_LOADV_128_OR_256_SLOW2] = "LOADV_128_or_256-slow2",
+   [MCPE_LOADV64]        = "LOADV64",
+   [MCPE_LOADV64_SLOW1]  = "LOADV64-slow1",
+   [MCPE_LOADV64_SLOW2]  = "LOADV64-slow2",
+   [MCPE_STOREV64]       = "STOREV64",
+   [MCPE_STOREV64_SLOW1] = "STOREV64-slow1",
+   [MCPE_STOREV64_SLOW2] = "STOREV64-slow2",
+   [MCPE_STOREV64_SLOW3] = "STOREV64-slow3",
+   [MCPE_STOREV64_SLOW4] = "STOREV64-slow4",
+   [MCPE_LOADV32]        = "LOADV32",
+   [MCPE_LOADV32_SLOW1]  = "LOADV32-slow1",
+   [MCPE_LOADV32_SLOW2]  = "LOADV32-slow2",
+   [MCPE_STOREV32]       = "STOREV32",
+   [MCPE_STOREV32_SLOW1] = "STOREV32-slow1",
+   [MCPE_STOREV32_SLOW2] = "STOREV32-slow2",
+   [MCPE_STOREV32_SLOW3] = "STOREV32-slow3",
+   [MCPE_STOREV32_SLOW4] = "STOREV32-slow4",
+   [MCPE_LOADV16]        = "LOADV16",
+   [MCPE_LOADV16_SLOW1]  = "LOADV16-slow1",
+   [MCPE_LOADV16_SLOW2]  = "LOADV16-slow2",
+   [MCPE_STOREV16]       = "STOREV16",
+   [MCPE_STOREV16_SLOW1] = "STOREV16-slow1",
+   [MCPE_STOREV16_SLOW2] = "STOREV16-slow2",
+   [MCPE_STOREV16_SLOW3] = "STOREV16-slow3",
+   [MCPE_STOREV16_SLOW4] = "STOREV16-slow4",
+   [MCPE_LOADV8]         = "LOADV8",
+   [MCPE_LOADV8_SLOW1]   = "LOADV8-slow1",
+   [MCPE_LOADV8_SLOW2]   = "LOADV8-slow2",
+   [MCPE_STOREV8]        = "STOREV8",
+   [MCPE_STOREV8_SLOW1]  = "STOREV8-slow1",
+   [MCPE_STOREV8_SLOW2]  = "STOREV8-slow2",
+   [MCPE_STOREV8_SLOW3]  = "STOREV8-slow3",
+   [MCPE_STOREV8_SLOW4]  = "STOREV8-slow4",
+   [MCPE_NEW_MEM_STACK_4]   = "new_mem_stack_4",
+   [MCPE_NEW_MEM_STACK_8]   = "new_mem_stack_8",
+   [MCPE_NEW_MEM_STACK_12]  = "new_mem_stack_12",
+   [MCPE_NEW_MEM_STACK_16]  = "new_mem_stack_16",
+   [MCPE_NEW_MEM_STACK_32]  = "new_mem_stack_32",
+   [MCPE_NEW_MEM_STACK_112] = "new_mem_stack_112",
+   [MCPE_NEW_MEM_STACK_128] = "new_mem_stack_128",
+   [MCPE_NEW_MEM_STACK_144] = "new_mem_stack_144",
+   [MCPE_NEW_MEM_STACK_160] = "new_mem_stack_160",
+   [MCPE_DIE_MEM_STACK_4]   = "die_mem_stack_4",
+   [MCPE_DIE_MEM_STACK_8]   = "die_mem_stack_8",
+   [MCPE_DIE_MEM_STACK_12]  = "die_mem_stack_12",
+   [MCPE_DIE_MEM_STACK_16]  = "die_mem_stack_16",
+   [MCPE_DIE_MEM_STACK_32]  = "die_mem_stack_32",
+   [MCPE_DIE_MEM_STACK_112] = "die_mem_stack_112",
+   [MCPE_DIE_MEM_STACK_128] = "die_mem_stack_128",
+   [MCPE_DIE_MEM_STACK_144] = "die_mem_stack_144",
+   [MCPE_DIE_MEM_STACK_160] = "die_mem_stack_160",
+   [MCPE_NEW_MEM_STACK]     = "new_mem_stack",
+   [MCPE_DIE_MEM_STACK]     = "die_mem_stack",
+   [MCPE_MAKE_STACK_UNINIT_W_O]      = "MAKE_STACK_UNINIT_w_o",
+   [MCPE_MAKE_STACK_UNINIT_NO_O]     = "MAKE_STACK_UNINIT_no_o",
+   [MCPE_MAKE_STACK_UNINIT_128_NO_O] = "MAKE_STACK_UNINIT_128_no_o",
+   [MCPE_MAKE_STACK_UNINIT_128_NO_O_ALIGNED_16]
+                                     = "MAKE_STACK_UNINIT_128_no_o_aligned_16",
+   [MCPE_MAKE_STACK_UNINIT_128_NO_O_ALIGNED_8]
+                                     = "MAKE_STACK_UNINIT_128_no_o_aligned_8",
+   [MCPE_MAKE_STACK_UNINIT_128_NO_O_SLOWCASE]
+                                     = "MAKE_STACK_UNINIT_128_no_o_slowcase",
+};
 
 static void init_prof_mem ( void )
 {
-   Int i;
-   for (i = 0; i < N_PROF_EVENTS; i++) {
+   Int i, name_count = 0;
+
+   for (i = 0; i < MCPE_LAST; i++) {
       MC_(event_ctr)[i] = 0;
-      MC_(event_ctr_name)[i] = NULL;
+      if (MC_(event_ctr_name)[i] != NULL)
+         ++name_count;
    }
+
+   /* Make sure every profiling event has a name */
+   tl_assert(name_count == MCPE_LAST);
 }
 
 static void done_prof_mem ( void )
 {
-   Int  i;
+   Int  i, n;
    Bool spaced = False;
-   for (i = 0; i < N_PROF_EVENTS; i++) {
-      if (!spaced && (i % 10) == 0) {
+   for (i = n = 0; i < MCPE_LAST; i++) {
+      if (!spaced && (n % 10) == 0) {
          VG_(printf)("\n");
          spaced = True;
       }
       if (MC_(event_ctr)[i] > 0) {
          spaced = False;
-         VG_(printf)( "prof mem event %3d: %9d   %s\n", 
+         ++n;
+         VG_(printf)( "prof mem event %3d: %11llu   %s\n", 
                       i, MC_(event_ctr)[i],
-                      MC_(event_ctr_name)[i] 
-                         ? MC_(event_ctr_name)[i] : "unnamed");
+                      MC_(event_ctr_name)[i]);
       }
    }
 }
@@ -6580,12 +7786,23 @@ static void mc_post_clo_init ( void )
       MC_(clo_leak_check) = LC_Full;
    }
 
-   if (MC_(clo_freelist_big_blocks) >= MC_(clo_freelist_vol))
+   if (MC_(clo_freelist_big_blocks) >= MC_(clo_freelist_vol)
+       && VG_(clo_verbosity) == 1 && !VG_(clo_xml)) {
       VG_(message)(Vg_UserMsg,
                    "Warning: --freelist-big-blocks value %lld has no effect\n"
                    "as it is >= to --freelist-vol value %lld\n",
                    MC_(clo_freelist_big_blocks),
                    MC_(clo_freelist_vol));
+   }
+
+   if (MC_(clo_workaround_gcc296_bugs)
+       && VG_(clo_verbosity) == 1 && !VG_(clo_xml)) {
+      VG_(umsg)(
+         "Warning: --workaround-gcc296-bugs=yes is deprecated.\n"
+         "Warning: Instead use: --ignore-range-below-sp=1024-1\n"
+         "\n"
+      );
+   }
 
    tl_assert( MC_(clo_mc_level) >= 1 && MC_(clo_mc_level) <= 3 );
 
@@ -6671,10 +7888,16 @@ static void mc_post_clo_init ( void )
    // directly with brk(), not with sbrk(), perhaps it would be reasonable to
    // just mark all memory it allocates as defined.]
    //
+#  if !defined(VGO_solaris)
    if (MC_(clo_mc_level) == 3)
       VG_(track_new_mem_brk)         ( mc_new_mem_w_tid_make_ECU );
    else
       VG_(track_new_mem_brk)         ( mc_new_mem_w_tid_no_ECU );
+#  else
+   // On Solaris, brk memory has to be marked as defined, otherwise we get
+   // many false positives.
+   VG_(track_new_mem_brk)         ( make_mem_defined_w_tid );
+#  endif
 
    /* This origin tracking cache is huge (~100M), so only initialise
       if we need it. */
@@ -6702,7 +7925,7 @@ static void mc_post_clo_init ( void )
 static void print_SM_info(const HChar* type, Int n_SMs)
 {
    VG_(message)(Vg_DebugMsg,
-      " memcheck: SMs: %s = %d (%ldk, %ldM)\n",
+      " memcheck: SMs: %s = %d (%luk, %luM)\n",
       type,
       n_SMs,
       n_SMs * sizeof(SecMap) / 1024UL,
@@ -6719,18 +7942,18 @@ static void mc_print_stats (void)
       " memcheck: sanity checks: %d cheap, %d expensive\n",
       n_sanity_cheap, n_sanity_expensive );
    VG_(message)(Vg_DebugMsg,
-      " memcheck: auxmaps: %lld auxmap entries (%lldk, %lldM) in use\n",
+      " memcheck: auxmaps: %llu auxmap entries (%lluk, %lluM) in use\n",
       n_auxmap_L2_nodes, 
       n_auxmap_L2_nodes * 64, 
       n_auxmap_L2_nodes / 16 );
    VG_(message)(Vg_DebugMsg,
-      " memcheck: auxmaps_L1: %lld searches, %lld cmps, ratio %lld:10\n",
+      " memcheck: auxmaps_L1: %llu searches, %llu cmps, ratio %llu:10\n",
       n_auxmap_L1_searches, n_auxmap_L1_cmps,
       (10ULL * n_auxmap_L1_cmps) 
          / (n_auxmap_L1_searches ? n_auxmap_L1_searches : 1) 
    );   
    VG_(message)(Vg_DebugMsg,
-      " memcheck: auxmaps_L2: %lld searches, %lld nodes\n",
+      " memcheck: auxmaps_L2: %llu searches, %llu nodes\n",
       n_auxmap_L2_searches, n_auxmap_L2_nodes
    );   
 
@@ -6754,7 +7977,7 @@ static void mc_print_stats (void)
    max_shmem_szB   = sizeof(primary_map) + max_SMs_szB + max_secVBit_szB;
 
    VG_(message)(Vg_DebugMsg,
-      " memcheck: max sec V bit nodes:    %d (%ldk, %ldM)\n",
+      " memcheck: max sec V bit nodes:    %d (%luk, %luM)\n",
       max_secVBit_nodes, max_secVBit_szB / 1024,
                          max_secVBit_szB / (1024 * 1024));
    VG_(message)(Vg_DebugMsg,
@@ -6762,7 +7985,7 @@ static void mc_print_stats (void)
       sec_vbits_new_nodes + sec_vbits_updates,
       sec_vbits_new_nodes, sec_vbits_updates );
    VG_(message)(Vg_DebugMsg,
-      " memcheck: max shadow mem size:   %ldk, %ldM\n",
+      " memcheck: max shadow mem size:   %luk, %luM\n",
       max_shmem_szB / 1024, max_shmem_szB / (1024 * 1024));
 
    if (MC_(clo_mc_level) >= 3) {
@@ -6782,8 +8005,8 @@ static void mc_print_stats (void)
                    stats_ocacheL1_found_at_N,
                    stats_ocacheL1_movefwds );
       VG_(message)(Vg_DebugMsg,
-                   " ocacheL1: %'12lu sizeB  %'12u useful\n",
-                   (UWord)sizeof(OCache),
+                   " ocacheL1: %'12lu sizeB  %'12d useful\n",
+                   (SizeT)sizeof(OCache),
                    4 * OC_W32S_PER_LINE * OC_LINES_PER_SET * OC_N_SETS );
       VG_(message)(Vg_DebugMsg,
                    " ocacheL2: %'12lu refs   %'12lu misses\n",
@@ -6846,7 +8069,7 @@ static void mc_fini ( Int exitcode )
       pertain to hardware mapped into the address space, and so we
       can't expect the client to have got rid of them. */
    if (gIgnoredAddressRanges) {
-      Word i, nBad = 0;
+      UInt i, nBad = 0;
       for (i = 0; i < VG_(sizeRangeMap)(gIgnoredAddressRanges); i++) {
          UWord val     = IAR_INVALID;
          UWord key_min = ~(UWord)0;
@@ -6868,8 +8091,8 @@ static void mc_fini ( Int exitcode )
                  "VALGRIND_{DISABLE,ENABLE}_ERROR_REPORTING_IN_RANGE macros.\n"
             );
          }
-         VG_(umsg)("   [%ld]  0x%016llx-0x%016llx  %s\n",
-                   i, (ULong)key_min, (ULong)key_max, showIARKind(val));
+         VG_(umsg)("   [%u]  0x%016lx-0x%016lx  %s\n",
+                   i, key_min, key_max, showIARKind(val));
       }
    }
 
@@ -6907,7 +8130,7 @@ static void mc_pre_clo_init(void)
    VG_(details_version)         (NULL);
    VG_(details_description)     ("a memory error detector");
    VG_(details_copyright_author)(
-      "Copyright (C) 2002-2013, and GNU GPL'd, by Julian Seward et al.");
+      "Copyright (C) 2002-2015, and GNU GPL'd, by Julian Seward et al.");
    VG_(details_bug_reports_to)  (VG_BUGS_TO);
    VG_(details_avg_translation_sizeB) ( 640 );
 
@@ -6932,6 +8155,7 @@ static void mc_pre_clo_init(void)
                                    MC_(print_extra_suppression_use),
                                    MC_(update_extra_suppression_use));
    VG_(needs_libc_freeres)        ();
+   VG_(needs_cxx_freeres)         ();
    VG_(needs_command_line_options)(mc_process_cmd_line_options,
                                    mc_print_usage,
                                    mc_print_debug_usage);
@@ -6996,6 +8220,11 @@ static void mc_pre_clo_init(void)
    VG_(track_post_reg_write)                  ( mc_post_reg_write );
    VG_(track_post_reg_write_clientcall_return)( mc_post_reg_write_clientcall );
 
+   if (MC_(clo_mc_level) >= 2) {
+      VG_(track_copy_mem_to_reg)  ( mc_copy_mem_to_reg );
+      VG_(track_copy_reg_to_mem)  ( mc_copy_reg_to_mem );
+   }
+
    VG_(needs_watchpoint)          ( mc_mark_unaddressable_for_watchpoint );
 
    init_shadow_memory();
@@ -7048,7 +8277,12 @@ static void mc_pre_clo_init(void)
    tl_assert(MASK(4) == 0xFFFFFFF000000003ULL);
    tl_assert(MASK(8) == 0xFFFFFFF000000007ULL);
 #  endif
+
+   /* Check some assertions to do with the instrumentation machinery. */
+   MC_(do_instrumentation_startup_checks)();
 }
+
+STATIC_ASSERT(sizeof(UWord) == sizeof(SizeT));
 
 VG_DETERMINE_INTERFACE_VERSION(mc_pre_clo_init)
 

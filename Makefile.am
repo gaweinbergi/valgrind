@@ -33,6 +33,7 @@ SUBDIRS = \
 	memcheck/tests/vbit-test \
 	auxprogs \
 	mpi \
+	solaris \
 	docs
 DIST_SUBDIRS  = $(SUBDIRS)
 
@@ -47,8 +48,10 @@ SUPP_FILES = \
 	freebsd.supp \
 	darwin9.supp darwin9-drd.supp \
 	darwin10.supp darwin10-drd.supp \
-	darwin11.supp darwin12.supp darwin13.supp \
-	bionic.supp
+	darwin11.supp darwin12.supp darwin13.supp darwin14.supp darwin15.supp \
+	darwin16.supp \
+	bionic.supp \
+	solaris11.supp solaris12.supp
 DEFAULT_SUPP_FILES = @DEFAULT_SUPP@
 
 # We include all the base .supp files in the distribution, but not
@@ -109,6 +112,7 @@ EXTRA_DIST = \
 	README.android_emulator \
 	README.mips \
 	README.aarch64 \
+	README.solaris \
 	NEWS.old \
 	valgrind.pc.in \
 	valgrind.spec.in \

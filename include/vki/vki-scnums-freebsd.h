@@ -1,4 +1,9 @@
 
+/*--------------------------------------------------------------------*/
+/*--- System call numbers for FreeBSD.                             ---*/
+/*---                                         vki-scnums-freebsd.h ---*/
+/*--------------------------------------------------------------------*/
+
 /*
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
@@ -24,8 +29,8 @@
    The GNU General Public License is contained in the file COPYING.
 */
 
-#ifndef __VKI_UNISTD_FREEBSD_H
-#define __VKI_UNISTD_FREEBSD_H
+#ifndef __VKI_SCNUMS_FREEBSD_H
+#define __VKI_SCNUMS_FREEBSD_H
 
 #define VG_FREEBSD_SYSCALL_STD	0
 #define VG_FREEBSD_SYSCALL0	1
@@ -448,7 +453,8 @@
 #define	__NR_utimensat		547
 #define	__NR_numa_getaffinity	548
 #define	__NR_numa_setaffinity	549
+#define __NR_fdatasync		550
 
 #define __NR_fake_sigreturn	1000
 
-#endif /* __VKI_UNISTD_FREEBSD_H */
+#endif /* __VKI_SCNUMS_FREEBSD_H */

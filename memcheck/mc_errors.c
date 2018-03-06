@@ -8,7 +8,7 @@
    This file is part of MemCheck, a heavyweight Valgrind tool for
    detecting memory errors.
 
-   Copyright (C) 2000-2013 Julian Seward 
+   Copyright (C) 2000-2015 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -44,6 +44,7 @@
 #include "pub_tool_threadstate.h"
 #include "pub_tool_debuginfo.h"     // VG_(get_dataname_and_offset)
 #include "pub_tool_xarray.h"
+#include "pub_tool_aspacemgr.h"
 #include "pub_tool_addrinfo.h"
 
 #include "mc_include.h"
@@ -200,7 +201,7 @@ struct _MC_Error {
    look at it any print any preamble you want" function.  Which, in
    Memcheck, we don't use.  Hence a no-op.
 */
-void MC_(before_pp_Error) ( Error* err ) {
+void MC_(before_pp_Error) ( const Error* err ) {
 }
 
 /* Do a printf-style operation on either the XML or normal output
@@ -305,6 +306,12 @@ HChar * MC_(snprintf_delta) (HChar * buf, Int size,
                              SizeT current_val, SizeT old_val, 
                              LeakCheckDeltaMode delta_mode)
 {
+   // Make sure the buffer size is large enough. With old_val == 0 and
+   // current_val == ULLONG_MAX the delta including inserted commas is:
+   // 18,446,744,073,709,551,615
+   // whose length is 26. Therefore:
+   tl_assert(size >= 26 + 4 + 1);
+
    if (delta_mode == LCD_Any)
       buf[0] = '\0';
    else if (current_val >= old_val)
@@ -320,24 +327,24 @@ static void pp_LossRecord(UInt n_this_record, UInt n_total_records,
 {
    // char arrays to produce the indication of increase/decrease in case
    // of delta_mode != LCD_Any
-   HChar d_bytes[20];
-   HChar d_direct_bytes[20];
-   HChar d_indirect_bytes[20];
-   HChar d_num_blocks[20];
+   HChar d_bytes[31];
+   HChar d_direct_bytes[31];
+   HChar d_indirect_bytes[31];
+   HChar d_num_blocks[31];
 
-   MC_(snprintf_delta) (d_bytes, 20, 
+   MC_(snprintf_delta) (d_bytes, sizeof(d_bytes),
                         lr->szB + lr->indirect_szB, 
                         lr->old_szB + lr->old_indirect_szB,
                         MC_(detect_memory_leaks_last_delta_mode));
-   MC_(snprintf_delta) (d_direct_bytes, 20,
+   MC_(snprintf_delta) (d_direct_bytes, sizeof(d_direct_bytes),
                         lr->szB,
                         lr->old_szB,
                         MC_(detect_memory_leaks_last_delta_mode));
-   MC_(snprintf_delta) (d_indirect_bytes, 20,
+   MC_(snprintf_delta) (d_indirect_bytes, sizeof(d_indirect_bytes),
                         lr->indirect_szB,
                         lr->old_indirect_szB,
                         MC_(detect_memory_leaks_last_delta_mode));
-   MC_(snprintf_delta) (d_num_blocks, 20,
+   MC_(snprintf_delta) (d_num_blocks, sizeof(d_num_blocks),
                         (SizeT) lr->num_blocks,
                         (SizeT) lr->old_num_blocks,
                         MC_(detect_memory_leaks_last_delta_mode));
@@ -368,8 +375,8 @@ static void pp_LossRecord(UInt n_this_record, UInt n_total_records,
                lr->num_blocks, d_num_blocks,
                str_leak_lossmode(lr->key.state), 
                n_this_record, n_total_records );
-         emit( "    <leakedbytes>%ld</leakedbytes>\n", lr->szB);
-         emit( "    <leakedblocks>%d</leakedblocks>\n", lr->num_blocks);
+         emit( "    <leakedbytes>%lu</leakedbytes>\n", lr->szB);
+         emit( "    <leakedblocks>%u</leakedblocks>\n", lr->num_blocks);
          emit( "  </xwhat>\n" );
       }
       VG_(pp_ExeContext)(lr->key.allocated_at);
@@ -404,7 +411,7 @@ void MC_(pp_LossRecord)(UInt n_this_record, UInt n_total_records,
    pp_LossRecord (n_this_record, n_total_records, l, /* xml */ False);
 }
 
-void MC_(pp_Error) ( Error* err )
+void MC_(pp_Error) ( const Error* err )
 {
    const Bool xml  = VG_(clo_xml); /* a shorthand */
    MC_Error* extra = VG_(get_error_extra)(err);
@@ -432,7 +439,7 @@ void MC_(pp_Error) ( Error* err )
          MC_(any_value_errors) = True;
          if (xml) {
             emit( "  <kind>UninitValue</kind>\n" );
-            emit( "  <what>Use of uninitialised value of size %ld</what>\n",
+            emit( "  <what>Use of uninitialised value of size %lu</what>\n",
                   extra->Err.Value.szB );
             VG_(pp_ExeContext)( VG_(get_error_where)(err) );
             if (extra->Err.Value.origin_ec)
@@ -441,7 +448,7 @@ void MC_(pp_Error) ( Error* err )
          } else {
             /* Could also show extra->Err.Cond.otag if debugging origin
                tracking */
-            emit( "Use of uninitialised value of size %ld\n",
+            emit( "Use of uninitialised value of size %lu\n",
                   extra->Err.Value.szB );
             VG_(pp_ExeContext)( VG_(get_error_where)(err) );
             if (extra->Err.Value.origin_ec)
@@ -587,7 +594,7 @@ void MC_(pp_Error) ( Error* err )
          if (xml) {
             emit( "  <kind>Invalid%s</kind>\n",
                   extra->Err.Addr.isWrite ? "Write" : "Read"  );
-            emit( "  <what>Invalid %s of size %ld</what>\n",
+            emit( "  <what>Invalid %s of size %lu</what>\n",
                   extra->Err.Addr.isWrite ? "write" : "read",
                   extra->Err.Addr.szB );
             VG_(pp_ExeContext)( VG_(get_error_where)(err) );
@@ -595,7 +602,7 @@ void MC_(pp_Error) ( Error* err )
                                  &extra->Err.Addr.ai,
                                  extra->Err.Addr.maybe_gcc );
          } else {
-            emit( "Invalid %s of size %ld\n",
+            emit( "Invalid %s of size %lu\n",
                   extra->Err.Addr.isWrite ? "write" : "read",
                   extra->Err.Addr.szB );
             VG_(pp_ExeContext)( VG_(get_error_where)(err) );
@@ -739,11 +746,18 @@ void MC_(record_address_error) ( ThreadId tid, Addr a, Int szB,
    if (VG_(is_watched)( (isWrite ? write_watchpoint : read_watchpoint), a, szB))
       return;
 
-   just_below_esp = is_just_below_ESP( VG_(get_SP)(tid), a );
+   Addr current_sp = VG_(get_SP)(tid);
+   just_below_esp = is_just_below_ESP( current_sp, a );
 
    /* If this is caused by an access immediately below %ESP, and the
       user asks nicely, we just ignore it. */
    if (MC_(clo_workaround_gcc296_bugs) && just_below_esp)
+      return;
+
+   /* Also, if this is caused by an access in the range of offsets
+      below the stack pointer as described by
+      --ignore-range-below-sp, ignore it. */
+   if (MC_(in_ignored_range_below_sp)( current_sp, a, szB ))
       return;
 
    extra.Err.Addr.isWrite   = isWrite;
@@ -918,6 +932,30 @@ void MC_(record_user_error) ( ThreadId tid, Addr a,
    VG_(maybe_record_error)( tid, Err_User, a, /*s*/NULL, &extra );
 }
 
+Bool MC_(is_mempool_block)(MC_Chunk* mc_search)
+{
+   MC_Mempool* mp;
+
+   if (!MC_(mempool_list))
+      return False;
+
+   // A chunk can only come from a mempool if a custom allocator
+   // is used. No search required for other kinds.
+   if (mc_search->allockind == MC_AllocCustom) {
+      VG_(HT_ResetIter)( MC_(mempool_list) );
+      while ( (mp = VG_(HT_Next)(MC_(mempool_list))) ) {
+         MC_Chunk* mc;
+         VG_(HT_ResetIter)(mp->chunks);
+         while ( (mc = VG_(HT_Next)(mp->chunks)) ) {
+            if (mc == mc_search)
+               return True;
+         }
+      }
+   }
+
+   return False;
+}
+ 
 /*------------------------------------------------------------*/
 /*--- Other error operations                               ---*/
 /*------------------------------------------------------------*/
@@ -925,7 +963,7 @@ void MC_(record_user_error) ( ThreadId tid, Addr a,
 /* Compare error contexts, to detect duplicates.  Note that if they
    are otherwise the same, the faulting addrs and associated rwoffsets
    are allowed to be different.  */
-Bool MC_(eq_Error) ( VgRes res, Error* e1, Error* e2 )
+Bool MC_(eq_Error) ( VgRes res, const Error* e1, const Error* e2 )
 {
    MC_Error* extra1 = VG_(get_error_extra)(e1);
    MC_Error* extra2 = VG_(get_error_extra)(e2);
@@ -1009,7 +1047,8 @@ Bool addr_is_in_MC_Chunk_with_REDZONE_SZB(MC_Chunk* mc, Addr a, SizeT rzB)
 
 // Forward declarations
 static Bool client_block_maybe_describe( Addr a, AddrInfo* ai );
-static Bool mempool_block_maybe_describe( Addr a, AddrInfo* ai );
+static Bool mempool_block_maybe_describe( Addr a, Bool is_metapool,
+                                          AddrInfo* ai );
 
 
 /* Describe an address as best you can, for error messages,
@@ -1024,10 +1063,12 @@ static void describe_addr ( Addr a, /*OUT*/AddrInfo* ai )
    if (client_block_maybe_describe( a, ai )) {
       return;
    }
-   /* -- Perhaps it's in mempool block? -- */
-   if (mempool_block_maybe_describe( a, ai )) {
+
+   /* -- Perhaps it's in mempool block (non-meta)? -- */
+   if (mempool_block_maybe_describe( a, /*is_metapool*/ False, ai)) {
       return;
    }
+
    /* Blocks allocated by memcheck malloc functions are either
       on the recently freed list or on the malloc-ed list.
       Custom blocks can be on both : a recently freed block might
@@ -1039,7 +1080,8 @@ static void describe_addr ( Addr a, /*OUT*/AddrInfo* ai )
    /* -- Search for a currently malloc'd block which might bracket it. -- */
    VG_(HT_ResetIter)(MC_(malloc_list));
    while ( (mc = VG_(HT_Next)(MC_(malloc_list))) ) {
-      if (addr_is_in_MC_Chunk_default_REDZONE_SZB(mc, a)) {
+      if (!MC_(is_mempool_block)(mc) && 
+           addr_is_in_MC_Chunk_default_REDZONE_SZB(mc, a)) {
          ai->tag = Addr_Block;
          ai->Addr.Block.block_kind = Block_Mallocd;
          if (MC_(get_freed_block_bracketting)( a ))
@@ -1056,7 +1098,7 @@ static void describe_addr ( Addr a, /*OUT*/AddrInfo* ai )
    }
    /* -- Search for a recently freed block which might bracket it. -- */
    mc = MC_(get_freed_block_bracketting)( a );
-   if (mc) {
+   if (mc && !MC_(is_mempool_block)(mc)) {
       ai->tag = Addr_Block;
       ai->Addr.Block.block_kind = Block_Freed;
       ai->Addr.Block.block_desc = "block";
@@ -1065,6 +1107,16 @@ static void describe_addr ( Addr a, /*OUT*/AddrInfo* ai )
       ai->Addr.Block.allocated_at = MC_(allocated_at)(mc);
       VG_(initThreadInfo) (&ai->Addr.Block.alloc_tinfo);
       ai->Addr.Block.freed_at = MC_(freed_at)(mc);
+      return;
+   }
+
+   /* -- Perhaps it's in a meta mempool block? -- */
+   /* This test is done last, because metapool blocks overlap with blocks
+      handed out to the application. That makes every heap address part of
+      a metapool block, so the interesting cases are handled first.
+      This final search is a last-ditch attempt. When found, it is probably
+      an error in the custom allocator itself. */
+   if (mempool_block_maybe_describe( a, /*is_metapool*/ True, ai )) {
       return;
    }
 
@@ -1079,6 +1131,7 @@ void MC_(pp_describe_addr) ( Addr a )
    ai.tag = Addr_Undescribed;
    describe_addr (a, &ai);
    VG_(pp_addrinfo_mc) (a, &ai, /* maybe_gcc */ False);
+   VG_(clear_addrinfo) (&ai);
 }
 
 /* Fill in *origin_ec as specified by otag, or NULL it out if otag
@@ -1094,7 +1147,7 @@ static void update_origin ( /*OUT*/ExeContext** origin_ec,
 }
 
 /* Updates the copy with address info if necessary (but not for all errors). */
-UInt MC_(update_Error_extra)( Error* err )
+UInt MC_(update_Error_extra)( const Error* err )
 {
    MC_Error* extra = VG_(get_error_extra)(err);
 
@@ -1207,7 +1260,7 @@ static Bool client_block_maybe_describe( Addr a,
 }
 
 
-static Bool mempool_block_maybe_describe( Addr a,
+static Bool mempool_block_maybe_describe( Addr a, Bool is_metapool,
                                           /*OUT*/AddrInfo* ai )
 {
    MC_Mempool* mp;
@@ -1215,7 +1268,7 @@ static Bool mempool_block_maybe_describe( Addr a,
 
    VG_(HT_ResetIter)( MC_(mempool_list) );
    while ( (mp = VG_(HT_Next)(MC_(mempool_list))) ) {
-      if (mp->chunks != NULL) {
+      if (mp->chunks != NULL && mp->metapool == is_metapool) {
          MC_Chunk* mc;
          VG_(HT_ResetIter)(mp->chunks);
          while ( (mc = VG_(HT_Next)(mp->chunks)) ) {
@@ -1248,13 +1301,13 @@ typedef
       CoreMemSupp,   // Memory errors in core (pthread ops, signal handling)
 
       // Undefined value errors of given size
-      Value1Supp, Value2Supp, Value4Supp, Value8Supp, Value16Supp,
+      Value1Supp, Value2Supp, Value4Supp, Value8Supp, Value16Supp, Value32Supp,
 
       // Undefined value error in conditional.
       CondSupp,
 
       // Unaddressable read/write attempt at given size
-      Addr1Supp, Addr2Supp, Addr4Supp, Addr8Supp, Addr16Supp,
+      Addr1Supp, Addr2Supp, Addr4Supp, Addr8Supp, Addr16Supp, Addr32Supp,
 
       JumpSupp,      // Jump to unaddressable target
       FreeSupp,      // Invalid or mismatching free
@@ -1277,6 +1330,7 @@ Bool MC_(is_recognised_suppression) ( const HChar* name, Supp* su )
    else if (VG_STREQ(name, "Addr4"))   skind = Addr4Supp;
    else if (VG_STREQ(name, "Addr8"))   skind = Addr8Supp;
    else if (VG_STREQ(name, "Addr16"))  skind = Addr16Supp;
+   else if (VG_STREQ(name, "Addr32"))  skind = Addr32Supp;
    else if (VG_STREQ(name, "Jump"))    skind = JumpSupp;
    else if (VG_STREQ(name, "Free"))    skind = FreeSupp;
    else if (VG_STREQ(name, "Leak"))    skind = LeakSupp;
@@ -1289,6 +1343,7 @@ Bool MC_(is_recognised_suppression) ( const HChar* name, Supp* su )
    else if (VG_STREQ(name, "Value4"))  skind = Value4Supp;
    else if (VG_STREQ(name, "Value8"))  skind = Value8Supp;
    else if (VG_STREQ(name, "Value16")) skind = Value16Supp;
+   else if (VG_STREQ(name, "Value32")) skind = Value32Supp;
    else if (VG_STREQ(name, "FishyValue")) skind = FishyValueSupp;
    else 
       return False;
@@ -1339,7 +1394,7 @@ Bool MC_(read_extra_suppression_info) ( Int fd, HChar** bufpp,
       if (eof) return True; // old LeakSupp style, no match-leak-kinds line.
       if (0 == VG_(strncmp)(*bufpp, "match-leak-kinds:", 17)) {
          i = 17;
-         while ((*bufpp)[i] && VG_(isspace((*bufpp)[i])))
+         while ((*bufpp)[i] && VG_(isspace)((*bufpp)[i]))
             i++;
          if (!VG_(parse_enum_set)(MC_(parse_leak_kinds_tokens),
                                   True/*allow_all*/,
@@ -1351,33 +1406,40 @@ Bool MC_(read_extra_suppression_info) ( Int fd, HChar** bufpp,
       }
    } else if (VG_(get_supp_kind)(su) == FishyValueSupp) {
       MC_FishyValueExtra *extra;
-      HChar *p;
+      HChar *p, *function_name, *argument_name = NULL;
 
       eof = VG_(get_line) ( fd, bufpp, nBufp, lineno );
       if (eof) return True;
 
-      extra = VG_(malloc)("mc.resi.3", sizeof *extra);
-      extra->function_name = VG_(strdup)("mv.resi.4", *bufpp);
-
       // The suppression string is: function_name(argument_name)
-      p = VG_(strchr)(extra->function_name, '(');
-      if (p == NULL) return False;  // malformed suppression string
-      *p++ = '\0';
-      extra->argument_name = p;
-      p = VG_(strchr)(p, ')');
-      if (p == NULL) return False;  // malformed suppression string
-      *p = '\0';
+      function_name = VG_(strdup)("mv.resi.4", *bufpp);
+      p = VG_(strchr)(function_name, '(');
+      if (p != NULL) {
+         *p++ = '\0';
+         argument_name = p;
+         p = VG_(strchr)(p, ')');
+         if (p != NULL)
+            *p = '\0';
+      }
+      if (p == NULL) {    // malformed suppression string
+         VG_(free)(function_name);
+         return False;
+      }
+
+      extra = VG_(malloc)("mc.resi.3", sizeof *extra);
+      extra->function_name = function_name;
+      extra->argument_name = argument_name;
 
       VG_(set_supp_extra)(su, extra);
    }
    return True;
 }
 
-Bool MC_(error_matches_suppression) ( Error* err, Supp* su )
+Bool MC_(error_matches_suppression) ( const Error* err, const Supp* su )
 {
    Int       su_szB;
    MC_Error* extra = VG_(get_error_extra)(err);
-   ErrorKind ekind = VG_(get_error_kind )(err);
+   ErrorKind ekind = VG_(get_error_kind)(err);
 
    switch (VG_(get_supp_kind)(su)) {
       case ParamSupp:
@@ -1398,6 +1460,7 @@ Bool MC_(error_matches_suppression) ( Error* err, Supp* su )
       case Value4Supp: su_szB = 4; goto value_case;
       case Value8Supp: su_szB = 8; goto value_case;
       case Value16Supp:su_szB =16; goto value_case;
+      case Value32Supp:su_szB =32; goto value_case;
       value_case:
          return (ekind == Err_Value && extra->Err.Value.szB == su_szB);
 
@@ -1409,6 +1472,7 @@ Bool MC_(error_matches_suppression) ( Error* err, Supp* su )
       case Addr4Supp: su_szB = 4; goto addr_case;
       case Addr8Supp: su_szB = 8; goto addr_case;
       case Addr16Supp:su_szB =16; goto addr_case;
+      case Addr32Supp:su_szB =32; goto addr_case;
       addr_case:
          return (ekind == Err_Addr && extra->Err.Addr.szB == su_szB);
 
@@ -1457,7 +1521,7 @@ Bool MC_(error_matches_suppression) ( Error* err, Supp* su )
    }
 }
 
-const HChar* MC_(get_error_name) ( Error* err )
+const HChar* MC_(get_error_name) ( const Error* err )
 {
    switch (VG_(get_error_kind)(err)) {
    case Err_RegParam:       return "Param";
@@ -1480,6 +1544,7 @@ const HChar* MC_(get_error_name) ( Error* err )
       case 4:               return "Addr4";
       case 8:               return "Addr8";
       case 16:              return "Addr16";
+      case 32:              return "Addr32";
       default:              VG_(tool_panic)("unexpected size for Addr");
       }
    }
@@ -1491,6 +1556,7 @@ const HChar* MC_(get_error_name) ( Error* err )
       case 4:               return "Value4";
       case 8:               return "Value8";
       case 16:              return "Value16";
+      case 32:              return "Value32";
       default:              VG_(tool_panic)("unexpected size for Value");
       }
    }
@@ -1498,54 +1564,54 @@ const HChar* MC_(get_error_name) ( Error* err )
    }
 }
 
-Bool MC_(get_extra_suppression_info) ( Error* err,
-                                       /*OUT*/HChar* buf, Int nBuf )
+SizeT MC_(get_extra_suppression_info) ( const Error* err,
+                                        /*OUT*/HChar* buf, Int nBuf )
 {
-   ErrorKind ekind = VG_(get_error_kind )(err);
+   ErrorKind ekind = VG_(get_error_kind)(err);
    tl_assert(buf);
-   tl_assert(nBuf >= 16); // stay sane
+   tl_assert(nBuf >= 1);
+
    if (Err_RegParam == ekind || Err_MemParam == ekind) {
       const HChar* errstr = VG_(get_error_string)(err);
       tl_assert(errstr);
-      VG_(snprintf)(buf, nBuf-1, "%s", errstr);
-      return True;
+      return VG_(snprintf)(buf, nBuf, "%s", errstr);
    } else if (Err_Leak == ekind) {
       MC_Error* extra = VG_(get_error_extra)(err);
-      VG_(snprintf)
-         (buf, nBuf-1, "match-leak-kinds: %s",
+      return VG_(snprintf) (buf, nBuf, "match-leak-kinds: %s",
           pp_Reachedness_for_leak_kinds(extra->Err.Leak.lr->key.state));
-      return True;
    } else if (Err_FishyValue == ekind) {
       MC_Error* extra = VG_(get_error_extra)(err);
-      VG_(snprintf)
-         (buf, nBuf-1, "%s(%s)", extra->Err.FishyValue.function_name,
-          extra->Err.FishyValue.argument_name);
-      return True;
+      return VG_(snprintf) (buf, nBuf, "%s(%s)",
+                            extra->Err.FishyValue.function_name,
+                            extra->Err.FishyValue.argument_name);
    } else {
-      return False;
+      buf[0] = '\0';
+      return 0;
    }
 }
 
-Bool MC_(print_extra_suppression_use) ( Supp *su,
-                                        /*OUT*/HChar *buf, Int nBuf )
+SizeT MC_(print_extra_suppression_use) ( const Supp *su,
+                                         /*OUT*/HChar *buf, Int nBuf )
 {
+   tl_assert(nBuf >= 1);
+
    if (VG_(get_supp_kind)(su) == LeakSupp) {
       MC_LeakSuppExtra *lse = (MC_LeakSuppExtra*) VG_(get_supp_extra) (su);
 
       if (lse->leak_search_gen == MC_(leak_search_gen)
           && lse->blocks_suppressed > 0) {
-         VG_(snprintf) (buf, nBuf-1, 
-                        "suppressed: %'lu bytes in %'lu blocks",
-                        lse->bytes_suppressed,
-                        lse->blocks_suppressed);
-         return True;
-      } else
-         return False;
-   } else
-      return False;
+         return VG_(snprintf) (buf, nBuf,
+                               "suppressed: %'lu bytes in %'lu blocks",
+                               lse->bytes_suppressed,
+                               lse->blocks_suppressed);
+      }
+   }
+
+   buf[0] = '\0';
+   return 0;
 }
 
-void MC_(update_extra_suppression_use) ( Error* err, Supp* su)
+void MC_(update_extra_suppression_use) ( const Error* err, const Supp* su)
 {
    if (VG_(get_supp_kind)(su) == LeakSupp) {
       MC_LeakSuppExtra *lse = (MC_LeakSuppExtra*) VG_(get_supp_extra) (su);

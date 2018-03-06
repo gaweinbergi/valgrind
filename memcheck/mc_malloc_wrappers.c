@@ -8,7 +8,7 @@
    This file is part of MemCheck, a heavyweight Valgrind tool for
    detecting memory errors.
 
-   Copyright (C) 2000-2013 Julian Seward 
+   Copyright (C) 2000-2015 Julian Seward 
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -66,11 +66,11 @@ static ULong cmalloc_bs_mallocd = 0;
 SizeT MC_(Malloc_Redzone_SzB) = -10000000; // If used before set, should BOMB
 
 /* Record malloc'd blocks. */
-VgHashTable MC_(malloc_list) = NULL;
+VgHashTable *MC_(malloc_list) = NULL;
 
 /* Memory pools: a hash table of MC_Mempools.  Search key is
    MC_Mempool::pool. */
-VgHashTable MC_(mempool_list) = NULL;
+VgHashTable *MC_(mempool_list) = NULL;
 
 /* Pool allocator for MC_Chunk. */   
 PoolAlloc *MC_(chunk_poolalloc) = NULL;
@@ -224,7 +224,7 @@ void delete_MC_Chunk (MC_Chunk* mc)
 }
 
 // True if mc is in the given block list.
-static Bool in_block_list (VgHashTable block_list, MC_Chunk* mc)
+static Bool in_block_list (const VgHashTable *block_list, MC_Chunk* mc)
 {
    MC_Chunk* found_mc = VG_(HT_lookup) ( block_list, (UWord)mc->data );
    if (found_mc) {
@@ -241,20 +241,6 @@ static Bool in_block_list (VgHashTable block_list, MC_Chunk* mc)
       if (found_mc->szB != mc->szB
           || found_mc->allockind != mc->allockind)
          return False;
-
-      /* If a user freed and allocated again in the same spot (through
-       * VALGRIND_MEMPOOL_FREE/ALLOC), we might arrive here with
-       * a dead chunk which has the same address as an alive one. */
-      if (mc->allockind == MC_AllocCustom && found_mc != mc) {
-         const int l = (mc->szB >= MC_(clo_freelist_big_blocks) ? 0 : 1);
-         MC_Chunk *c = freed_list_start[l];
-         do {
-            if (c == mc)
-               return False;
-            c = c->next;
-         } while (c);
-      }
-
       tl_assert (found_mc == mc);
       return True;
    } else
@@ -352,7 +338,8 @@ UInt MC_(n_where_pointers) (void)
 /* Allocate memory and note change in memory available */
 void* MC_(new_block) ( ThreadId tid,
                        Addr p, SizeT szB, SizeT alignB,
-                       Bool is_zeroed, MC_AllocKind kind, VgHashTable table)
+                       Bool is_zeroed, MC_AllocKind kind,
+                       VgHashTable *table)
 {
    MC_Chunk* mc;
 
@@ -688,16 +675,53 @@ void MC_(handle_resizeInPlace)(ThreadId tid, Addr p,
 
 static void check_mempool_sane(MC_Mempool* mp); /*forward*/
 
+static void free_mallocs_in_mempool_block (MC_Mempool* mp,
+                                           Addr StartAddr,
+                                           Addr EndAddr)
+{
+   MC_Chunk *mc;
+   ThreadId tid;
 
-void MC_(create_mempool)(Addr pool, UInt rzB, Bool is_zeroed)
+   tl_assert(mp->auto_free);
+
+   if (VG_(clo_verbosity) > 2) {
+      VG_(message)(Vg_UserMsg,
+          "free_mallocs_in_mempool_block: Start 0x%lx size %lu\n",
+          StartAddr, (SizeT) (EndAddr - StartAddr));
+   }
+
+   tid = VG_(get_running_tid)();
+
+   VG_(HT_ResetIter)(MC_(malloc_list));
+   while ( (mc = VG_(HT_Next)(MC_(malloc_list))) ) {
+      if (mc->data >= StartAddr && mc->data + mc->szB <= EndAddr) {
+	 if (VG_(clo_verbosity) > 2) {
+	    VG_(message)(Vg_UserMsg, "Auto-free of 0x%lx size=%lu\n",
+			    mc->data, (mc->szB + 0UL));
+	 }
+
+	 VG_(HT_remove_at_Iter)(MC_(malloc_list));
+	 die_and_free_mem(tid, mc, mp->rzB);
+      }
+   }
+}
+
+void MC_(create_mempool)(Addr pool, UInt rzB, Bool is_zeroed,
+                         Bool auto_free, Bool metapool)
 {
    MC_Mempool* mp;
 
-   if (VG_(clo_verbosity) > 2) {
-      VG_(message)(Vg_UserMsg, "create_mempool(0x%lx, %d, %d)\n",
-                               pool, rzB, is_zeroed);
+   if (VG_(clo_verbosity) > 2 || (auto_free && !metapool)) {
+      VG_(message)(Vg_UserMsg,
+                   "create_mempool(0x%lx, rzB=%u, zeroed=%d,"
+                   " autofree=%d, metapool=%d)\n",
+                   pool, rzB, is_zeroed,
+                   auto_free, metapool);
       VG_(get_and_pp_StackTrace)
          (VG_(get_running_tid)(), MEMPOOL_DEBUG_STACKTRACE_DEPTH);
+      if (auto_free && !metapool)
+         VG_(tool_panic)("Inappropriate use of mempool:"
+                         " an auto free pool must be a meta pool. Aborting\n");
    }
 
    mp = VG_(HT_lookup)(MC_(mempool_list), (UWord)pool);
@@ -709,6 +733,8 @@ void MC_(create_mempool)(Addr pool, UInt rzB, Bool is_zeroed)
    mp->pool       = pool;
    mp->rzB        = rzB;
    mp->is_zeroed  = is_zeroed;
+   mp->auto_free  = auto_free;
+   mp->metapool   = metapool;
    mp->chunks     = VG_(HT_construct)( "MC_(create_mempool)" );
    check_mempool_sane(mp);
 
@@ -793,7 +819,7 @@ check_mempool_sane(MC_Mempool* mp)
 	 }
 	 
          VG_(message)(Vg_UserMsg, 
-                      "Total mempools active: %d pools, %d chunks\n", 
+                      "Total mempools active: %u pools, %u chunks\n", 
 		      total_pools, total_chunks);
 	 tick = 0;
        }
@@ -806,7 +832,7 @@ check_mempool_sane(MC_Mempool* mp)
    for (i = 0; i < n_chunks-1; i++) {
       if (chunks[i]->data > chunks[i+1]->data) {
          VG_(message)(Vg_UserMsg, 
-                      "Mempool chunk %d / %d is out of order "
+                      "Mempool chunk %u / %u is out of order "
                       "wrt. its successor\n", 
                       i+1, n_chunks);
          bad = 1;
@@ -817,7 +843,7 @@ check_mempool_sane(MC_Mempool* mp)
    for (i = 0; i < n_chunks-1; i++) {
       if (chunks[i]->data + chunks[i]->szB > chunks[i+1]->data ) {
          VG_(message)(Vg_UserMsg, 
-                      "Mempool chunk %d / %d overlaps with its successor\n", 
+                      "Mempool chunk %u / %u overlaps with its successor\n", 
                       i+1, n_chunks);
          bad = 1;
       }
@@ -825,11 +851,11 @@ check_mempool_sane(MC_Mempool* mp)
 
    if (bad) {
          VG_(message)(Vg_UserMsg, 
-                "Bad mempool (%d chunks), dumping chunks for inspection:\n",
+                "Bad mempool (%u chunks), dumping chunks for inspection:\n",
                 n_chunks);
          for (i = 0; i < n_chunks; ++i) {
             VG_(message)(Vg_UserMsg, 
-                         "Mempool chunk %d / %d: %ld bytes "
+                         "Mempool chunk %u / %u: %lu bytes "
                          "[%lx,%lx), allocated:\n",
                          i+1, 
                          n_chunks, 
@@ -848,7 +874,7 @@ void MC_(mempool_alloc)(ThreadId tid, Addr pool, Addr addr, SizeT szB)
    MC_Mempool* mp;
 
    if (VG_(clo_verbosity) > 2) {     
-      VG_(message)(Vg_UserMsg, "mempool_alloc(0x%lx, 0x%lx, %ld)\n",
+      VG_(message)(Vg_UserMsg, "mempool_alloc(0x%lx, 0x%lx, %lu)\n",
                                pool, addr, szB);
       VG_(get_and_pp_StackTrace) (tid, MEMPOOL_DEBUG_STACKTRACE_DEPTH);
    }
@@ -896,10 +922,14 @@ void MC_(mempool_free)(Addr pool, Addr addr)
       return;
    }
 
+   if (mp->auto_free) {
+      free_mallocs_in_mempool_block(mp, mc->data, mc->data + (mc->szB + 0UL));
+   }
+
    if (VG_(clo_verbosity) > 2) {
       VG_(message)(Vg_UserMsg, 
-		   "mempool_free(0x%lx, 0x%lx) freed chunk of %ld bytes\n",
-		   pool, addr, mc->szB + 0UL);
+                   "mempool_free(0x%lx, 0x%lx) freed chunk of %lu bytes\n",
+                   pool, addr, mc->szB + 0UL);
    }
 
    die_and_free_mem ( tid, mc, mp->rzB );
@@ -916,7 +946,7 @@ void MC_(mempool_trim)(Addr pool, Addr addr, SizeT szB)
    VgHashNode** chunks;
 
    if (VG_(clo_verbosity) > 2) {
-      VG_(message)(Vg_UserMsg, "mempool_trim(0x%lx, 0x%lx, %ld)\n",
+      VG_(message)(Vg_UserMsg, "mempool_trim(0x%lx, 0x%lx, %lu)\n",
                                pool, addr, szB);
       VG_(get_and_pp_StackTrace) (tid, MEMPOOL_DEBUG_STACKTRACE_DEPTH);
    }
@@ -1050,7 +1080,7 @@ void MC_(mempool_change)(Addr pool, Addr addrA, Addr addrB, SizeT szB)
    ThreadId     tid = VG_(get_running_tid)();
 
    if (VG_(clo_verbosity) > 2) {
-      VG_(message)(Vg_UserMsg, "mempool_change(0x%lx, 0x%lx, 0x%lx, %ld)\n",
+      VG_(message)(Vg_UserMsg, "mempool_change(0x%lx, 0x%lx, 0x%lx, %lu)\n",
                    pool, addrA, addrB, szB);
       VG_(get_and_pp_StackTrace) (tid, MEMPOOL_DEBUG_STACKTRACE_DEPTH);
    }

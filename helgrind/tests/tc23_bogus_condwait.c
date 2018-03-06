@@ -7,9 +7,7 @@
 #include <semaphore.h>
 #include <stdio.h>
 #include <stdlib.h>
-#if defined(VGO_freebsd)
-#include <sys/fcntl.h>
-#endif
+#include <errno.h>
 pthread_mutex_t mx[4]; 
 pthread_cond_t cv; pthread_rwlock_t rwl;
 sem_t* quit_now;
@@ -60,26 +58,34 @@ int main ( void )
   r= pthread_rwlock_init(&rwl, NULL); assert(!r);
 
   quit_now = my_sem_init( "quit_now", 0,0 ); assert(quit_now);
-
+fprintf(stderr, "quit_now = %p\n", quit_now);
+fflush(stderr);
   r= pthread_create( &grabber, NULL, grab_the_lock, NULL ); assert(!r);
   sleep(1); /* let the grabber get there first */
-
+fprintf(stderr, "grabber created\n");
+fflush(stderr);
   r= pthread_create( &my_rescuer, NULL, rescue_me, NULL );  assert(!r);
+fprintf(stderr, "rescuer created\n");
+fflush(stderr);
   /* Do stupid things and hope that rescue_me gets us out of
      trouble */
 
   /* mx is bogus */
+  /* XXX FreeBSD mutexes are dynamically allocated. Passing a bogus address */
+  /*     is especially bad, so skip this particular test. */
+#if !defined(VGO_freebsd)
   r= pthread_cond_wait(&cv, (pthread_mutex_t*)(4 + (char*)&mx[0]) );
+#endif
 
   /* mx is not locked */
   r= pthread_cond_wait(&cv, &mx[0]);
-
+if (r) {errno=r; perror("pthread_cond_wait not locked");}
   /* wrong flavour of lock */
   r= pthread_cond_wait(&cv, (pthread_mutex_t*)&rwl );
-
+if (r) {errno=r; perror("pthread_cond_wait wrong lock type");}
   /* mx is held by someone else. */
   r= pthread_cond_wait(&cv, &mx[2] );
-
+if (r) {errno=r; perror("pthread_cond_wait lock held");}
   r= my_sem_post( quit_now ); assert(!r);
   r= my_sem_post( quit_now ); assert(!r);
 
@@ -101,7 +107,7 @@ static sem_t* my_sem_init (char* identity, int pshared, unsigned count)
 {
    sem_t* s;
 
-#if defined(VGO_linux)
+#if defined(VGO_linux) || defined(VGO_freebsd) || defined(VGO_solaris)
    s = malloc(sizeof(*s));
    if (s) {
       if (sem_init(s, pshared, count) < 0) {
@@ -110,7 +116,7 @@ static sem_t* my_sem_init (char* identity, int pshared, unsigned count)
 	 s = NULL;
       }
    }
-#elif defined(VGO_darwin) || defined(VGO_freebsd)
+#elif defined(VGO_darwin)
    char name[100];
    sprintf(name, "anonsem_%s_pid%d", identity, (int)getpid());
    name[ sizeof(name)-1 ] = 0;

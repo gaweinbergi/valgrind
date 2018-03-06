@@ -5,12 +5,12 @@
 ##----------------------------------------------------------------------##
 
 {
-   rtld-1
+   FreeBSD-rtld-1
    Memcheck:Cond
    obj:/libexec/ld-elf*.so.1
 }
 {
-   ld-elf-1
+   FreeBSD-ld-elf-1
    Memcheck:Leak
    match-leak-kinds: reachable
    fun:calloc
@@ -20,7 +20,7 @@
    obj:/libexec/ld-elf.so.1
 }
 {
-   libc puts leak
+   FreeBSE-libc-puts-leak
    memcheck:Leak
    fun:malloc
    obj:/lib/libc.so.7
@@ -33,18 +33,33 @@
 # drd
 ##----------------------------------------------------------------------##
 {
-   DRD-1
+   FreeBSD-DRD-pthread_create
    drd:ConflictingAccess
    obj:/lib/libthr.so.3
    fun:pthread_create
    fun:pthread_create
-   fun:main
+   ...
 }
 {
-   DRD-2
+   FreeBSD-DRD-pthread_exit
    drd:ConflictingAccess
    ...
    fun:pthread_exit
+   ...
+}
+{
+   FreeBSD-DRD-exit
+   drd:ConflictingAccess
+   ...
+   obj:/libexec/ld-elf.so.1
+   fun:__cxa_finalize
+   fun:exit
+   ...
+}
+{
+   FreeBSD-DRD-flockfile
+   drd:ConflictingAccess
+   fun:flockfile
    ...
 }
 
@@ -52,37 +67,22 @@
 # Helgrind
 ##----------------------------------------------------------------------##
 {
-   HELGRIND-PTHREAD-EXIT1
+   FreeBSD-Helgrind-pthread_exit-1
    Helgrind:Race
    fun:_pthread_exit_mask
    fun:pthread_exit
    obj:/lib/libthr.so.3
-}  
+}
 {
-   HELGRIND-PTHREAD-EXIT2
+   FreeBSD-Helgrind-pthread_exit-2
    Helgrind:Race
-   fun:__sys_thr_exit
-   fun:_pthread_exit_mask
+   fun:*thr_exit
+   ...
    fun:pthread_exit
    obj:/lib/libthr.so.3
-}  
-{
-   HELGRIND-PTHREAD-EXIT3
-   Helgrind:Race
-   obj:/lib/libthr.so.3
-   fun:pthread_join_WRK
-   fun:pthread_join
 }
 {
-   HELGRIND-PTHREAD-EXIT4
-   Helgrind:Race
-   fun:_thr_try_gc
-   obj:/lib/libthr.so.3
-   fun:pthread_join_WRK
-   fun:pthread_join
-}
-{
-   HELGRIND-PTHREAD-EXIT5
+   FreeBSD-Helgrind-pthread_exit-3
    Helgrind:Race
    fun:__sys_thr_exit
    obj:/lib/libthr.so.3
@@ -91,41 +91,51 @@
    obj:/lib/libthr.so.3
 }
 {
-   HELGRIND-PTHREAD-JOIN3
+   FreeBSD-Helgrind-pthread_join
    Helgrind:Race
-   obj:/lib/libthr.so.3
+   ...
    obj:/lib/libthr.so.3
    fun:pthread_join_WRK
    fun:pthread_join
-   fun:main
+   ...
 }
-
 {
-   HELGRIND-PTHREAD-BARRIER1
+   FreeBSD-Helgrind-pthread_barrier_init
    Helgrind:Race
    fun:pthread_barrier_init
    fun:pthread_barrier_init
-   fun:main
+   ...
 }
 {
-   HELGRIND-PTHREAD-BARRIER2
+   FreeBSD-Helgrind-pthread_barrier_destroy
    Helgrind:Race
    fun:pthread_barrier_destroy
    fun:pthread_barrier_destroy
-   fun:main
+   ...
 }
 {
-   HELGRIND-PTHREAD-CANCEL
+   FreeBSD-Helgrind-pthread_cancel
    Helgrind:Race
    fun:pthread_cancel
-   fun:main
+   ...
 }
 {
-   HELGRIND-PTHREAD-MUTEX-LOCK
+   FreeBSD-Helgrind-pthread_mutex_lock
    Helgrind:Race
    obj: /lib/libthr.so.3
    obj: /lib/libthr.so.3
    fun: pthread_mutex_lock
    fun: pthread_mutex_lock
+   ...
+}
+{
+   FreeBSD-Helgrind-LIBTHR.SO.3
+   Helgrind:Race
+   obj:/lib/libthr.so.3
+}
+{
+   FreeBSD-Helgrind-flockfile
+   Helgrind:Race
+   fun:flockfile
    ...
 }

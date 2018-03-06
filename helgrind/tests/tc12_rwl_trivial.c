@@ -5,13 +5,13 @@
 #define _GNU_SOURCE 1
 
 #include <stdio.h>
-#include <pthread.h>
+#include "safe-pthread.h"
 #include <assert.h>
 #include <errno.h>
 
 #if defined(VGO_darwin)
 #define EXPRET EINVAL
-#elif defined(VGO_freebsd)
+#elif defined(VGO_freebsd) || defined(VGO_solaris)
 #define EXPRET EPERM
 #else
 #define EXPRET 0

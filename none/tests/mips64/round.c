@@ -2,12 +2,14 @@
 #include "rounding_mode.h"
 #include "macro_fpu.h"
 
+#if defined(__mips_hard_float)
 int directedRoundingMode(flt_dir_op_t op) {
    int fd_w = 0;
    long long int fd_l = 0;
    int i;
    int fcsr = 0;
    for (i = 0; i < MAX_ARR; i++) {
+      clear_fcc();
       switch(op) {
          case CEILWS:
               UNOPfw("ceil.w.s");
@@ -110,6 +112,7 @@ int FCSRRoundingMode(flt_round_op_t op1)
       set_rounding_mode(rm);
       printf("roundig mode: %s\n", round_mode_name[rm]);
       for (i = 0; i < MAX_ARR; i++) {
+         clear_fcc();
          set_rounding_mode(rm);
          switch(op1) {
             case CVTDS:
@@ -170,9 +173,11 @@ int FCSRRoundingMode(flt_round_op_t op1)
    }
    return 0;
 }
+#endif
 
 int main()
 {
+#if defined(__mips_hard_float)
    flt_dir_op_t op;
    flt_round_op_t op1;
 
@@ -187,5 +192,6 @@ int main()
    for (op1 = CVTDS; op1 <= CVTSL; op1++) {
       FCSRRoundingMode(op1);
    }
+#endif
    return 0;
 }

@@ -20,6 +20,9 @@
 #undef PLAT_arm_linux
 #undef PLAT_s390x_linux
 #undef PLAT_mips32_linux
+#undef PLAT_tilegx_linux
+#undef PLAT_x86_solaris
+#undef PLAT_amd64_solaris
 
 #if defined(__APPLE__) && defined(__i386__)
 #  define PLAT_x86_darwin 1
@@ -45,12 +48,19 @@
 #  define PLAT_s390x_linux 1
 #elif defined(__linux__) && defined(__mips__)
 #  define PLAT_mips32_linux 1
+#elif defined(__linux__) && defined(__tilegx__)
+#  define PLAT_tilegx_linux 1
+#elif defined(__sun__) && defined(__i386__)
+#  define PLAT_x86_solaris 1
+#elif defined(__sun__) && defined(__x86_64__)
+#  define PLAT_amd64_solaris 1
 #endif
 
 
 #if defined(PLAT_amd64_linux) || defined(PLAT_x86_linux) \
     || defined(PLAT_amd64_darwin) || defined(PLAT_x86_darwin) \
-    || defined(PLAT_amd64_freebsd) || defined(PLAT_x86_freebsd)
+    || defined(PLAT_amd64_freebsd) || defined(PLAT_x86_freebsd) \
+    || defined(PLAT_amd64_solaris) || defined(PLAT_x86_solaris)
 #  define XCHG_M_R(_addr,_lval) \
      __asm__ __volatile__( \
         "xchgl %0, %1" \
@@ -122,6 +132,12 @@
 #  define XCHG_M_R_with_redundant_LOCK(_addr,_lval) \
       XCHG_M_R(_addr,_lval)
 
+#elif defined(PLAT_tilegx_linux)
+#  define XCHG_M_R(_addr,_lval) \
+  _lval = __insn_exch4(&_addr, _lval)
+
+#  define XCHG_M_R_with_redundant_LOCK(_addr,_lval) \
+  XCHG_M_R(_addr, _lval)
 #else
 #  error "Unsupported architecture"
 

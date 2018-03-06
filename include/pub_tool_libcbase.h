@@ -7,7 +7,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2013 Julian Seward
+   Copyright (C) 2000-2015 Julian Seward
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -54,11 +54,6 @@ extern HChar VG_(tolower) ( HChar c );
 // is set to the start of the string.  None of them test that the number
 // fits into 64 bits.
 //
-// Nb: if you're wondering why we don't just have a single VG_(strtoll) which
-// takes a base, it's because I wanted it to assert if it was given a bogus
-// base (the standard glibc one sets 'errno' in this case).  But
-// m_libcbase.c doesn't import any code, not even vg_assert. --njn
-// 
 // Nb: we also don't provide VG_(atoll*);  these functions are worse than
 // useless because they don't do any error checking and so accept malformed
 // numbers and non-numbers -- eg. "123xyz" gives 123, and "foo" gives 0!
@@ -106,10 +101,14 @@ extern HChar* VG_(strtok_r)       (HChar* s, const HChar* delim, HChar** saveptr
 extern HChar* VG_(strtok)         (HChar* s, const HChar* delim);
 
 /* Parse a 32- or 64-bit hex number, including leading 0x, from string
-   starting at *ppc, putting result in *result, and return True.  Or
-   fail, in which case *ppc and *result are undefined, and return
-   False. */
+   starting at *ppc, putting result in *result, advance *ppc past the
+   characters used, and return True.  Or fail, in which case *ppc and
+   *result are undefined, and return False. */
 extern Bool VG_(parse_Addr) ( const HChar** ppc, Addr* result );
+
+/* Parse an unsigned 32 bit number, written using decimals only.
+   Calling conventions are the same as for VG_(parse_Addr). */
+extern Bool VG_(parse_UInt) ( const HChar** ppc, UInt* result );
 
 /* Parse an "enum set" made of one or more words comma separated.
    The allowed word values are given in 'tokens', separated by comma.
@@ -130,10 +129,6 @@ extern Bool VG_(parse_enum_set) ( const HChar *tokens,
                                   Bool  allow_all,
                                   const HChar *input,
                                   UInt *enum_set);
-
-/* Like strncpy(), but if 'src' is longer than 'ndest' inserts a '\0' as the
-   last character. */
-extern void  VG_(strncpy_safely) ( HChar* dest, const HChar* src, SizeT ndest );
 
 /* ---------------------------------------------------------------------
    mem* functions

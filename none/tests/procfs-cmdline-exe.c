@@ -17,11 +17,11 @@
 #include <unistd.h>
 #include "../../config.h"
 
-#define CMDLINE_PID "/proc/%d/cmdline"
+#define CMDLINE_PID "/proc/%ld/cmdline"
 #ifdef VGO_freebsd
 #define CMDLINE_SELF "/proc/curproc/cmdline"
 #define EXEFILE_LABEL "/proc/<pid>/file"
-#define EXEFILE_PID "/proc/%d/file"
+#define EXEFILE_PID "/proc/%ld/file"
 #define EXEFILE_SELF "/proc/curproc/file"
 #else
 #define CMDLINE_SELF "/proc/self/cmdline"
@@ -111,12 +111,12 @@ int main(int argc, char** argv)
     perror("getcwd");
   strcat(cwd, "/");
 
-  snprintf(path, sizeof(path), CMDLINE_PID, getpid());
+  snprintf(path, sizeof(path), CMDLINE_PID, (long)getpid());
 
   test_cmdline(cwd, CMDLINE_SELF, CMDLINE_SELF);
   test_cmdline(cwd, "/proc/<pid>/cmdline", path);
 
-  snprintf(path, sizeof(path), EXEFILE_PID, getpid());
+  snprintf(path, sizeof(path), EXEFILE_PID, (long)getpid());
 
   test_readlink(cwd, EXEFILE_SELF, EXEFILE_SELF);
   test_readlink(cwd, EXEFILE_LABEL, path);
