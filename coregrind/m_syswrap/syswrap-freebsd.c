@@ -3188,14 +3188,17 @@ PRE(sys_readlinkat)
    /*
     * Handle the case where readlinkat is looking at /proc/curproc/file or
     * /proc/<pid>/file.
+    * XXX FreeBSD doesn't have have /proc/self/fd, so we just return the name
+    *     of the target executable directly. This is already a hack, so not
+    *     going through the actual system call doesn't seem so bad.
     */
    VG_(sprintf)(name, "/proc/%d/file", VG_(getpid)());
    if (ML_(safe_to_deref)((void*)ARG2, 1)
        && (VG_(strcmp)((HChar *)ARG2, name) == 0 
            || VG_(strcmp)((HChar *)ARG2, "/proc/curproc/file") == 0)) {
-      VG_(sprintf)(name, "/proc/self/fd/%d", VG_(cl_exec_fd));
-      SET_STATUS_from_SysRes( VG_(do_syscall4)(saved, ARG1, (UWord)name, 
-                                                      ARG3, ARG4));
+      size_t len = MIN(VG_(strlen)(VG_(args_the_exename)), (size_t)ARG4);
+      VG_(strncpy)((char *)ARG3, VG_(args_the_exename), len);
+      SET_STATUS_Success(len);
    } else {
       /* Normal case */
       SET_STATUS_from_SysRes( VG_(do_syscall4)(saved, ARG1, ARG2, ARG3, ARG4));
@@ -3452,7 +3455,7 @@ PRE(sys_ioctl)
                  unsigned int, fd, unsigned int, request, unsigned long, arg);
 
 /* On FreeBSD, ALL ioctl's are IOR/IOW encoded.  Just use the default decoder */
-   if (VG_(strstr)(VG_(clo_sim_hints), "lax-ioctls") != NULL) {
+   if (SimHintiS(SimHint_lax_ioctls, VG_(clo_sim_hints))) {
       /* 
       * Be very lax about ioctl handling; the only
       * assumption is that the size is correct. Doesn't
@@ -3722,7 +3725,7 @@ POST(sys_ptrace)
 PRE(sys_cpuset_setaffinity)
 {
 
-    PRINT("sys_cpuset_setaffinity ( %ld, %ld, %lld, %llu, %#lx )", ARG1, ARG2,
+    PRINT("sys_cpuset_setaffinity ( %ld, %ld, %ld, %lu, %#lx )", ARG1, ARG2,
         ARG3, ARG4, ARG5);
     PRE_REG_READ5(int, "cpuset_setaffinity",
         int, level, int, which, long, id,
@@ -3733,7 +3736,7 @@ PRE(sys_cpuset_setaffinity)
 PRE(sys_cpuset_getaffinity)
 {
 
-    PRINT("sys_cpuset_getaffinity ( %ld, %ld, %lld, %llu, %#lx )", ARG1, ARG2,
+    PRINT("sys_cpuset_getaffinity ( %ld, %ld, %ld, %lu, %#lx )", ARG1, ARG2,
         ARG3, ARG4, ARG5);
     PRE_REG_READ5(int, "cpuset_getaffinity",
         int, level, int, which, long, id,

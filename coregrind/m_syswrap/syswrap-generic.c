@@ -4235,6 +4235,24 @@ PRE(sys_readlink)
          SET_STATUS_from_SysRes( VG_(do_syscall3)(saved, (UWord)name,
                                                          ARG2, ARG3));
       } else
+#elif defined(VGO_freebsd)
+      /*
+       * Same for FreeBSD, but /proc/curproc/file and /proc/<pid>/file. Also,
+       * FreeBSD doesn't have have /proc/self/fd, so we just return the name
+       * of the target executable directly. This is already a hack, so not
+       * going through the actual system call doesn't seem so bad.
+       */
+      HChar  name[30];   // large enough
+      HChar* arg1s = (HChar*) ARG1;
+      VG_(sprintf)(name, "/proc/%d/file", VG_(getpid)());
+      if (ML_(safe_to_deref)(arg1s, 1) &&
+          (VG_STREQ(arg1s, name) || VG_STREQ(arg1s, "/proc/curproc/file"))
+         )
+      {
+         size_t len = MIN(VG_(strlen)(VG_(args_the_exename)), (size_t)ARG3);
+         VG_(strncpy)((char *)ARG2, VG_(args_the_exename), len);
+         SET_STATUS_Success(len);
+      } else
 #endif
       {
          /* Normal case */

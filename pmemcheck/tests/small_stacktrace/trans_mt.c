@@ -18,6 +18,7 @@
 
 #define FILE_SIZE (16 * 1024 * 1024)
 
+static int tx_count = 0;
 /*
  * Perform tx in a thread.
  */
@@ -38,6 +39,16 @@ make_tx(void *arg)
     *i16p = 2;
     *i32p = 3;
     *i64p = 4;
+
+    /*
+     * XXX Don't let this thread complete before the other one has a chance
+     *     to get here. This is a Valgrind artifact of using the tid as the
+     *     tx_id. And, of course, it wouldn't happen if the transaction were
+     *     properly ended.
+     */
+    for (tx_count++; tx_count < 2; )
+        pthread_yield();
+
     return NULL;
 }
 

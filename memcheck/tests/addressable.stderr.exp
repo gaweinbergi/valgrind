@@ -62,12 +62,12 @@ ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
 Uninitialised byte(s) found during client check request
    at 0x........: test5 (addressable.c:86)
    by 0x........: main (addressable.c:159)
- Address 0x........ is not stack'd, malloc'd or (recently) free'd
+ Address 0x........ is in a rw- anonymous segment
 
 Uninitialised byte(s) found during client check request
    at 0x........: test5 (addressable.c:92)
    by 0x........: main (addressable.c:159)
- Address 0x........ is not stack'd, malloc'd or (recently) free'd
+ Address 0x........ is in a r-- anonymous segment
 
 
 HEAP SUMMARY:

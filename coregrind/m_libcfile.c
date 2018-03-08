@@ -120,7 +120,7 @@ Bool VG_(resolve_filename) ( Int fd, const HChar** result )
    vki_size_t len = 1000000;
    Int mib[4];
    SysRes sres;
-   Char *bp, *eb;
+   HChar *bp, *eb;
    struct vki_kinfo_file *kf;
 
    if (filedesc_buf == NULL)    // first time
@@ -130,7 +130,6 @@ Bool VG_(resolve_filename) ( Int fd, const HChar** result )
    mib[1] = VKI_KERN_PROC;
    mib[2] = VKI_KERN_PROC_FILEDESC;
    mib[3] = sr_Res(VG_(do_syscall0)(__NR_getpid));
-   len = sizeof(filedesc_buf);
    sres = VG_(do_syscall6)(__NR___sysctl, (UWord)mib, 4, (UWord)filedesc_buf,
                            (UWord)&len, 0, 0);
    if (sr_isError(sres)) {

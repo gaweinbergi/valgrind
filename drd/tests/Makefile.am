@@ -296,9 +296,7 @@ EXTRA_DIST =                                        \
 	tc08_hbl2.stderr.exp                        \
 	tc08_hbl2.stdout.exp                        \
 	tc08_hbl2.vgtest                            \
-	tc09_bad_unlock.stderr.exp-x86              \
-	tc09_bad_unlock.stderr.exp-ppc              \
-	tc09_bad_unlock.stderr.exp-glibc2.8         \
+	tc09_bad_unlock.stderr.exp                  \
 	tc09_bad_unlock.stderr.exp-s390             \
 	tc09_bad_unlock.stderr.exp-solaris          \
 	tc09_bad_unlock.vgtest                      \

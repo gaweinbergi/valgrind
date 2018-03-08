@@ -1208,37 +1208,32 @@ read_cache_line_size(void)
     return ret_val;
 }
 
+/* XXX This should be in a .h file somewhere */
+extern Bool VG_(resolve_filename) (Int fd, const HChar** buf);
+
 /**
 * \brief Try to register a file mapping.
 * \param[in] fd The file descriptor to be registered.
 * \param[in] addr The address at which this file will be mapped.
 * \param[in] size The size of the registered file mapping.
 * \param[in] offset Offset within the mapped file.
-* \return Returns 1 on success, 0 otherwise.
+* \return Returns 0 on success, 1 otherwise.
 */
 static UInt
 register_new_file(Int fd, UWord base, UWord size, UWord offset)
 {
-    char fd_path[64];
-    VG_(sprintf(fd_path, "/proc/self/fd/%d", fd));
-    UInt retval = 0;
 
-    char *file_name = VG_(malloc)("pmc.main.nfcc", MAX_PATH_SIZE);
-    int read_length = VG_(readlink)(fd_path, file_name, MAX_PATH_SIZE - 1);
-    if (read_length <= 0) {
-        retval = 1;
-        goto out;
-    }
+    const HChar *file_name;
 
-    file_name[read_length] = 0;
+    if (!(VG_(resolve_filename)(fd, &file_name)))
+        return 1;
 
     /* logging_on shall have no effect on this */
     if (pmem.log_stores)
         VG_(emit)("|REGISTER_FILE;%s;0x%lx;0x%lx;0x%lx", file_name, base,
                 size, offset);
-out:
-    VG_(free)(file_name);
-    return retval;
+
+    return 0;
 }
 
 /**

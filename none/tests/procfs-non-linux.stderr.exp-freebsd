@@ -1,10 +1,10 @@
 
 /proc/curproc/cmdline:
-procfs-cmdline-exe
+./procfs-cmdline-exe
 /proc/<pid>/cmdline:
-procfs-cmdline-exe
-Result of readlink("/proc/curproc/file"): XXX
-Result of readlink("/proc/<pid>/file"): XXX
-readlinkat: No such file or directory
-readlinkat: No such file or directory
+./procfs-cmdline-exe
+Result of readlink("/proc/curproc/file"): ./procfs-cmdline-exe
+Result of readlink("/proc/<pid>/file"): ./procfs-cmdline-exe
+Result of readlinkat("/proc/curproc/file"): ./procfs-cmdline-exe
+Result of readlinkat("/proc/<pid>/file"): ./procfs-cmdline-exe
 
