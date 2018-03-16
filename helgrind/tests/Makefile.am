@@ -48,6 +48,7 @@ EXTRA_DIST = \
 	pth_destroy_cond.vgtest \
 		pth_destroy_cond.stdout.exp pth_destroy_cond.stderr.exp \
 	pth_cond_destroy_busy.vgtest pth_cond_destroy_busy.stderr.exp \
+		pth_cond_destroy_busy.stderr.exp-freebsd \
 		pth_cond_destroy_busy.stderr.exp-ppc64 \
 		pth_cond_destroy_busy.stderr.exp-solaris \
 	pth_spinlock.vgtest pth_spinlock.stdout.exp pth_spinlock.stderr.exp \

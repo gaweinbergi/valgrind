@@ -55,6 +55,7 @@
 #include "pub_tool_basics.h"
 #include "pub_tool_redir.h"
 #include "pub_tool_clreq.h"
+#include "pub_tool_libcprint.h"
 #include "helgrind.h"
 #include "config.h"
 
@@ -411,7 +412,7 @@ static int pthread_create_WRK(pthread_t *thread, const pthread_attr_t *attr,
 
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_create wrapper"); fflush(stderr);
+      VG_(printf_stderr)("<< pthread_create wrapper");
    }
    xargs[0] = (Word)start;
    xargs[1] = (Word)arg;
@@ -452,7 +453,7 @@ static int pthread_create_WRK(pthread_t *thread, const pthread_attr_t *attr,
    VALGRIND_HG_ENABLE_CHECKING(&xargs, sizeof(xargs));
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: pth_create -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: pth_create -> %d >>\n", ret);
    }
    return ret;
 }
@@ -505,7 +506,7 @@ static int thr_create_WRK(void *stk, size_t stksize, void *(*start)(void *),
 
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< thr_create wrapper"); fflush(stderr);
+      VG_(printf_stderr)("<< thr_create wrapper");
    }
    xargs[0] = (Word)start;
    xargs[1] = (Word)arg;
@@ -532,7 +533,7 @@ static int thr_create_WRK(void *stk, size_t stksize, void *(*start)(void *),
    VALGRIND_HG_ENABLE_CHECKING(&xargs, sizeof(xargs));
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: thr_create -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: thr_create -> %d >>\n", ret);
    }
    return ret;
 }
@@ -557,7 +558,7 @@ static int pthread_join_WRK(pthread_t thread, void** value_pointer)
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_join wrapper"); fflush(stderr);
+      VG_(printf_stderr)("<< pthread_join wrapper");
    }
 
    CALL_FN_W_WW(ret, fn, thread,value_pointer);
@@ -572,7 +573,7 @@ static int pthread_join_WRK(pthread_t thread, void** value_pointer)
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: pth_join -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: pth_join -> %d >>\n", ret);
    }
    return ret;
 }
@@ -656,7 +657,7 @@ static int thr_join_WRK(thread_t joinee, thread_t *departed, void **thread_retur
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< thr_join wrapper"); fflush(stderr);
+      VG_(printf_stderr)("<< thr_join wrapper");
    }
 
    CALL_FN_W_WWW(ret, fn, joinee, departed, thread_return);
@@ -668,7 +669,7 @@ static int thr_join_WRK(thread_t joinee, thread_t *departed, void **thread_retur
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: thr_join -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: thr_join -> %d >>\n", ret);
    }
    return ret;
 }
@@ -703,9 +704,9 @@ void I_WRAP_SONAME_FNNAME_ZU
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_GNAT_FNS) {
-     fprintf(stderr, "<< GNAT master_hook wrapper "
+     VG_(printf_stderr)("<< GNAT master_hook wrapper "
              "dependent %p master %p master_level %d\n",
-             dependent, master, master_level); fflush(stderr);
+             dependent, master, master_level);
    }
 
    // We call the wrapped function, even if it is a null body.
@@ -716,7 +717,7 @@ void I_WRAP_SONAME_FNNAME_ZU
                  Word, (Word)master_level);
 
    if (TRACE_GNAT_FNS) {
-      fprintf(stderr, " :: GNAT master_hook >>\n");
+      VG_(printf_stderr)(" :: GNAT master_hook >>\n");
    }
 }
 
@@ -738,9 +739,9 @@ void I_WRAP_SONAME_FNNAME_ZU
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_GNAT_FNS) {
-     fprintf(stderr, "<< GNAT master_completed_hook wrapper "
+     VG_(printf_stderr)("<< GNAT master_completed_hook wrapper "
              "self_id %p master_level %d\n",
-             self_id, master_level); fflush(stderr);
+             self_id, master_level);
    }
 
    // We call the wrapped function, even if it is a null body.
@@ -750,7 +751,7 @@ void I_WRAP_SONAME_FNNAME_ZU
                  void*,self_id, Word,(Word)master_level);
 
    if (TRACE_GNAT_FNS) {
-      fprintf(stderr, " :: GNAT master_completed_hook >>\n");
+      VG_(printf_stderr)(" :: GNAT master_completed_hook >>\n");
    }
 }
 
@@ -778,7 +779,7 @@ PTH_FUNC(int, pthreadZumutexZuinit, // pthread_mutex_init
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_mxinit %p", mutex); fflush(stderr);
+      VG_(printf_stderr)("<< pthread_mxinit %p", mutex);
    }
 
    mbRec = 0;
@@ -799,7 +800,7 @@ PTH_FUNC(int, pthreadZumutexZuinit, // pthread_mutex_init
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: mxinit -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: mxinit -> %d >>\n", ret);
    }
    return ret;
 }
@@ -815,7 +816,7 @@ PTH_FUNC(int, mutexZuinit, // mutex_init
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< mxinit %p", mutex); fflush(stderr);
+      VG_(printf_stderr)("<< mxinit %p", mutex);
    }
 
    mbRec = ((type & LOCK_RECURSIVE) != 0) ? 1 : 0;
@@ -830,7 +831,7 @@ PTH_FUNC(int, mutexZuinit, // mutex_init
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: mxinit -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: mxinit -> %d >>\n", ret);
    }
    return ret;
 }
@@ -851,7 +852,7 @@ static int mutex_destroy_WRK(pthread_mutex_t *mutex)
 
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_mxdestroy %p", mutex); fflush(stderr);
+      VG_(printf_stderr)("<< pthread_mxdestroy %p", mutex);
    }
 
    if (mutex != NULL) {
@@ -871,7 +872,7 @@ static int mutex_destroy_WRK(pthread_mutex_t *mutex)
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: mxdestroy -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: mxdestroy -> %d >>\n", ret);
    }
    return ret;
 }
@@ -903,7 +904,7 @@ static int mutex_lock_WRK(pthread_mutex_t *mutex)
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_mxlock %p", mutex); fflush(stderr);
+      VG_(printf_stderr)("<< pthread_mxlock %p", mutex);
    }
 
    DO_CREQ_v_WW(_VG_USERREQ__HG_PTHREAD_MUTEX_LOCK_PRE,
@@ -924,7 +925,7 @@ static int mutex_lock_WRK(pthread_mutex_t *mutex)
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: mxlock -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: mxlock -> %d >>\n", ret);
    }
    return ret;
 }
@@ -954,7 +955,7 @@ PTH_FUNC(void, lmutexZulock, // lmutex_lock
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< lmxlock %p", mutex); fflush(stderr);
+      VG_(printf_stderr)("<< lmxlock %p", mutex);
    }
 
    DO_CREQ_v_WW(_VG_USERREQ__HG_PTHREAD_MUTEX_LOCK_PRE,
@@ -964,7 +965,7 @@ PTH_FUNC(void, lmutexZulock, // lmutex_lock
                 mutex_t *, mutex, long, True);
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: lmxlock >>\n");
+      VG_(printf_stderr)(" :: lmxlock >>\n");
    }
 }
 #endif /* VGO_solaris */
@@ -989,7 +990,7 @@ static int mutex_trylock_WRK(pthread_mutex_t *mutex)
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_mxtrylock %p", mutex); fflush(stderr);
+      VG_(printf_stderr)("<< pthread_mxtrylock %p", mutex);
    }
 
    DO_CREQ_v_WW(_VG_USERREQ__HG_PTHREAD_MUTEX_LOCK_PRE,
@@ -1011,7 +1012,7 @@ static int mutex_trylock_WRK(pthread_mutex_t *mutex)
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: mxtrylock -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: mxtrylock -> %d >>\n", ret);
    }
    return ret;
 }
@@ -1046,8 +1047,7 @@ static int mutex_timedlock_WRK(pthread_mutex_t *mutex,
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_mxtimedlock %p %p", mutex, timeout); 
-      fflush(stderr);
+      VG_(printf_stderr)("<< pthread_mxtimedlock %p %p", mutex, timeout); 
    }
 
    DO_CREQ_v_WW(_VG_USERREQ__HG_PTHREAD_MUTEX_LOCK_PRE,
@@ -1069,7 +1069,7 @@ static int mutex_timedlock_WRK(pthread_mutex_t *mutex,
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: mxtimedlock -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: mxtimedlock -> %d >>\n", ret);
    }
    return ret;
 }
@@ -1101,7 +1101,7 @@ static int mutex_unlock_WRK(pthread_mutex_t *mutex)
    VALGRIND_GET_ORIG_FN(fn);
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_mxunlk %p", mutex); fflush(stderr);
+      VG_(printf_stderr)("<< pthread_mxunlk %p", mutex);
    }
 
    DO_CREQ_v_W(_VG_USERREQ__HG_PTHREAD_MUTEX_UNLOCK_PRE,
@@ -1117,7 +1117,7 @@ static int mutex_unlock_WRK(pthread_mutex_t *mutex)
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " mxunlk -> %d >>\n", ret);
+      VG_(printf_stderr)(" mxunlk -> %d >>\n", ret);
    }
    return ret;
 }
@@ -1147,7 +1147,7 @@ PTH_FUNC(void, lmutexZuunlock, // lmutex_unlock
    VALGRIND_GET_ORIG_FN(fn);
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< lmxunlk %p", mutex); fflush(stderr);
+      VG_(printf_stderr)("<< lmxunlk %p", mutex);
    }
 
    DO_CREQ_v_W(_VG_USERREQ__HG_PTHREAD_MUTEX_UNLOCK_PRE,
@@ -1157,7 +1157,7 @@ PTH_FUNC(void, lmutexZuunlock, // lmutex_unlock
                mutex_t*, mutex);
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " lmxunlk >>\n");
+      VG_(printf_stderr)(" lmxunlk >>\n");
    }
 }
 #endif /* VGO_solaris */
@@ -1193,8 +1193,7 @@ static int pthread_cond_wait_WRK(pthread_cond_t* cond,
    VALGRIND_GET_ORIG_FN(fn);
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_cond_wait %p %p", cond, mutex);
-      fflush(stderr);
+      VG_(printf_stderr)("<< pthread_cond_wait %p %p", cond, mutex);
    }
 
    /* Tell the tool a cond-wait is about to happen, so it can check
@@ -1233,7 +1232,7 @@ static int pthread_cond_wait_WRK(pthread_cond_t* cond,
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " cowait -> %d >>\n", ret);
+      VG_(printf_stderr)(" cowait -> %d >>\n", ret);
    }
 
    return ret;
@@ -1288,9 +1287,8 @@ static int pthread_cond_timedwait_WRK(pthread_cond_t* cond,
    VALGRIND_GET_ORIG_FN(fn);
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_cond_timedwait %p %p %p", 
+      VG_(printf_stderr)("<< pthread_cond_timedwait %p %p %p", 
                       cond, mutex, abstime);
-      fflush(stderr);
    }
 
    /* Tell the tool a cond-wait is about to happen, so it can check
@@ -1338,7 +1336,7 @@ static int pthread_cond_timedwait_WRK(pthread_cond_t* cond,
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " cotimedwait -> %d >>\n", ret);
+      VG_(printf_stderr)(" cotimedwait -> %d >>\n", ret);
    }
 
    return ret;
@@ -1404,8 +1402,7 @@ static int pthread_cond_signal_WRK(pthread_cond_t* cond)
    VALGRIND_GET_ORIG_FN(fn);
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_cond_signal %p", cond);
-      fflush(stderr);
+      VG_(printf_stderr)("<< pthread_cond_signal %p", cond);
    }
 
    DO_CREQ_v_W(_VG_USERREQ__HG_PTHREAD_COND_SIGNAL_PRE,
@@ -1421,7 +1418,7 @@ static int pthread_cond_signal_WRK(pthread_cond_t* cond)
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " cosig -> %d >>\n", ret);
+      VG_(printf_stderr)(" cosig -> %d >>\n", ret);
    }
 
    return ret;
@@ -1471,8 +1468,7 @@ static int pthread_cond_broadcast_WRK(pthread_cond_t* cond)
    VALGRIND_GET_ORIG_FN(fn);
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_cond_broadcast %p", cond);
-      fflush(stderr);
+      VG_(printf_stderr)("<< pthread_cond_broadcast %p", cond);
    }
 
    DO_CREQ_v_W(_VG_USERREQ__HG_PTHREAD_COND_BROADCAST_PRE,
@@ -1488,7 +1484,7 @@ static int pthread_cond_broadcast_WRK(pthread_cond_t* cond)
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " cobro -> %d >>\n", ret);
+      VG_(printf_stderr)(" cobro -> %d >>\n", ret);
    }
 
    return ret;
@@ -1536,8 +1532,7 @@ static int pthread_cond_init_WRK(pthread_cond_t* cond, pthread_condattr_t *cond_
    VALGRIND_GET_ORIG_FN(fn);
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_cond_init %p", cond);
-      fflush(stderr);
+      VG_(printf_stderr)("<< pthread_cond_init %p", cond);
    }
 
    CALL_FN_W_WW(ret, fn, cond, cond_attr);
@@ -1550,7 +1545,7 @@ static int pthread_cond_init_WRK(pthread_cond_t* cond, pthread_condattr_t *cond_
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " coinit -> %d >>\n", ret);
+      VG_(printf_stderr)(" coinit -> %d >>\n", ret);
    }
 
    return ret;
@@ -1584,7 +1579,7 @@ PTH_FUNC(int, condZuinit, // cond_init
    VALGRIND_GET_ORIG_FN(fn);
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< cond_init %p", cond); fflush(stderr);
+      VG_(printf_stderr)("<< cond_init %p", cond);
    }
 
    CALL_FN_W_WWW(ret, fn, cond, type, arg);
@@ -1599,7 +1594,7 @@ PTH_FUNC(int, condZuinit, // cond_init
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " cond_init -> %d >>\n", ret);
+      VG_(printf_stderr)(" cond_init -> %d >>\n", ret);
    }
 
    return ret;
@@ -1625,8 +1620,7 @@ static int pthread_cond_destroy_WRK(pthread_cond_t* cond)
    VALGRIND_GET_ORIG_FN(fn);
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_cond_destroy %p", cond);
-      fflush(stderr);
+      VG_(printf_stderr)("<< pthread_cond_destroy %p", cond);
    }
 
    if (cond != NULL) {
@@ -1646,7 +1640,7 @@ static int pthread_cond_destroy_WRK(pthread_cond_t* cond)
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " codestr -> %d >>\n", ret);
+      VG_(printf_stderr)(" codestr -> %d >>\n", ret);
    }
 
    return ret;
@@ -1707,9 +1701,8 @@ PTH_FUNC(int, pthreadZubarrierZuinit, // pthread_barrier_init
    VALGRIND_GET_ORIG_FN(fn);
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_barrier_init %p %p %lu",
+      VG_(printf_stderr)("<< pthread_barrier_init %p %p %lu",
                       bar, attr, count);
-      fflush(stderr);
    }
 
    DO_CREQ_v_WWW(_VG_USERREQ__HG_PTHREAD_BARRIER_INIT_PRE,
@@ -1724,7 +1717,7 @@ PTH_FUNC(int, pthreadZubarrierZuinit, // pthread_barrier_init
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "  pthread_barrier_init -> %d >>\n", ret);
+      VG_(printf_stderr)("  pthread_barrier_init -> %d >>\n", ret);
    }
 
    return ret;
@@ -1744,8 +1737,7 @@ PTH_FUNC(int, pthreadZubarrierZuwait, // pthread_barrier_wait
    VALGRIND_GET_ORIG_FN(fn);
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_barrier_wait %p", bar);
-      fflush(stderr);
+      VG_(printf_stderr)("<< pthread_barrier_wait %p", bar);
    }
 
    /* That this works correctly, and doesn't screw up when a thread
@@ -1763,7 +1755,7 @@ PTH_FUNC(int, pthreadZubarrierZuwait, // pthread_barrier_wait
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "  pthread_barrier_wait -> %d >>\n", ret);
+      VG_(printf_stderr)("  pthread_barrier_wait -> %d >>\n", ret);
    }
 
    return ret;
@@ -1783,8 +1775,7 @@ PTH_FUNC(int, pthreadZubarrierZudestroy, // pthread_barrier_destroy
    VALGRIND_GET_ORIG_FN(fn);
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_barrier_destroy %p", bar);
-      fflush(stderr);
+      VG_(printf_stderr)("<< pthread_barrier_destroy %p", bar);
    }
 
    DO_CREQ_v_W(_VG_USERREQ__HG_PTHREAD_BARRIER_DESTROY_PRE,
@@ -1797,7 +1788,7 @@ PTH_FUNC(int, pthreadZubarrierZudestroy, // pthread_barrier_destroy
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "  pthread_barrier_destroy -> %d >>\n", ret);
+      VG_(printf_stderr)("  pthread_barrier_destroy -> %d >>\n", ret);
    }
 
    return ret;
@@ -1842,7 +1833,7 @@ static int pthread_spin_init_or_unlock_WRK(pthread_spinlock_t* lock,
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_spin_iORu %p", lock); fflush(stderr);
+      VG_(printf_stderr)("<< pthread_spin_iORu %p", lock);
    }
 
    DO_CREQ_v_W(_VG_USERREQ__HG_PTHREAD_SPIN_INIT_OR_UNLOCK_PRE,
@@ -1858,7 +1849,7 @@ static int pthread_spin_init_or_unlock_WRK(pthread_spinlock_t* lock,
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: spiniORu -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: spiniORu -> %d >>\n", ret);
    }
    return ret;
 }
@@ -1909,8 +1900,7 @@ static int pthread_spin_destroy_WRK(pthread_spinlock_t *lock)
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_spin_destroy %p", lock);
-      fflush(stderr);
+      VG_(printf_stderr)("<< pthread_spin_destroy %p", lock);
    }
 
    DO_CREQ_v_W(_VG_USERREQ__HG_PTHREAD_SPIN_DESTROY_PRE,
@@ -1923,7 +1913,7 @@ static int pthread_spin_destroy_WRK(pthread_spinlock_t *lock)
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: spindestroy -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: spindestroy -> %d >>\n", ret);
    }
    return ret;
 }
@@ -1950,8 +1940,7 @@ static int pthread_spin_lock_WRK(pthread_spinlock_t *lock)
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_spinlock %p", lock);
-      fflush(stderr);
+      VG_(printf_stderr)("<< pthread_spinlock %p", lock);
    }
 
    DO_CREQ_v_WW(_VG_USERREQ__HG_PTHREAD_SPIN_LOCK_PRE,
@@ -1972,7 +1961,7 @@ static int pthread_spin_lock_WRK(pthread_spinlock_t *lock)
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: spinlock -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: spinlock -> %d >>\n", ret);
    }
    return ret;
 }
@@ -1999,8 +1988,7 @@ static int pthread_spin_trylock_WRK(pthread_spinlock_t *lock)
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_spin_trylock %p", lock);
-      fflush(stderr);
+      VG_(printf_stderr)("<< pthread_spin_trylock %p", lock);
    }
 
    DO_CREQ_v_WW(_VG_USERREQ__HG_PTHREAD_SPIN_LOCK_PRE,
@@ -2022,7 +2010,7 @@ static int pthread_spin_trylock_WRK(pthread_spinlock_t *lock)
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: spin_trylock -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: spin_trylock -> %d >>\n", ret);
    }
    return ret;
 }
@@ -2072,7 +2060,7 @@ static int pthread_rwlock_init_WRK(pthread_rwlock_t *rwl,
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_rwl_init %p", rwl); fflush(stderr);
+      VG_(printf_stderr)("<< pthread_rwl_init %p", rwl);
    }
 
    CALL_FN_W_WW(ret, fn, rwl,attr);
@@ -2085,7 +2073,7 @@ static int pthread_rwlock_init_WRK(pthread_rwlock_t *rwl,
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: rwl_init -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: rwl_init -> %d >>\n", ret);
    }
    return ret;
 }
@@ -2125,7 +2113,7 @@ PTH_FUNC(int, rwlockZuinit, // rwlock_init
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< rwl_init %p", rwlock); fflush(stderr);
+      VG_(printf_stderr)("<< rwl_init %p", rwlock);
    }
 
    CALL_FN_W_WWW(ret, fn, rwlock, type, arg);
@@ -2138,7 +2126,7 @@ PTH_FUNC(int, rwlockZuinit, // rwlock_init
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: rwl_init -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: rwl_init -> %d >>\n", ret);
    }
    return ret;
 }
@@ -2159,7 +2147,7 @@ static int pthread_rwlock_destroy_WRK(pthread_rwlock_t* rwl)
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_rwl_destroy %p", rwl); fflush(stderr);
+      VG_(printf_stderr)("<< pthread_rwl_destroy %p", rwl);
    }
 
    DO_CREQ_v_W(_VG_USERREQ__HG_PTHREAD_RWLOCK_DESTROY_PRE,
@@ -2172,7 +2160,7 @@ static int pthread_rwlock_destroy_WRK(pthread_rwlock_t* rwl)
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: rwl_destroy -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: rwl_destroy -> %d >>\n", ret);
    }
    return ret;
 }
@@ -2215,7 +2203,7 @@ static int pthread_rwlock_wrlock_WRK(pthread_rwlock_t* rwlock)
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_rwl_wlk %p", rwlock); fflush(stderr);
+      VG_(printf_stderr)("<< pthread_rwl_wlk %p", rwlock);
    }
 
    DO_CREQ_v_WWW(_VG_USERREQ__HG_PTHREAD_RWLOCK_LOCK_PRE,
@@ -2232,7 +2220,7 @@ static int pthread_rwlock_wrlock_WRK(pthread_rwlock_t* rwlock)
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: rwl_wlk -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: rwl_wlk -> %d >>\n", ret);
    }
    return ret;
 }
@@ -2268,7 +2256,7 @@ PTH_FUNC(void, lrwZuwrlock, // lrw_wrlock
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< lrw_wlk %p", rwlock); fflush(stderr);
+      VG_(printf_stderr)("<< lrw_wlk %p", rwlock);
    }
 
    DO_CREQ_v_WWW(_VG_USERREQ__HG_PTHREAD_RWLOCK_LOCK_PRE,
@@ -2281,7 +2269,7 @@ PTH_FUNC(void, lrwZuwrlock, // lrw_wrlock
                  pthread_rwlock_t *, rwlock, long, 1/*isW*/, long, True);
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: lrw_wlk >>\n");
+      VG_(printf_stderr)(" :: lrw_wlk >>\n");
    }
 }
 #endif /* VGO_solaris */
@@ -2301,7 +2289,7 @@ static int pthread_rwlock_rdlock_WRK(pthread_rwlock_t* rwlock)
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_rwl_rlk %p", rwlock); fflush(stderr);
+      VG_(printf_stderr)("<< pthread_rwl_rlk %p", rwlock);
    }
 
    DO_CREQ_v_WWW(_VG_USERREQ__HG_PTHREAD_RWLOCK_LOCK_PRE,
@@ -2318,7 +2306,7 @@ static int pthread_rwlock_rdlock_WRK(pthread_rwlock_t* rwlock)
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: rwl_rlk -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: rwl_rlk -> %d >>\n", ret);
    }
    return ret;
 }
@@ -2354,7 +2342,7 @@ PTH_FUNC(void, lrwZurdlock, // lrw_rdlock
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< lrw_rlk %p", rwlock); fflush(stderr);
+      VG_(printf_stderr)("<< lrw_rlk %p", rwlock);
    }
 
    DO_CREQ_v_WWW(_VG_USERREQ__HG_PTHREAD_RWLOCK_LOCK_PRE,
@@ -2367,7 +2355,7 @@ PTH_FUNC(void, lrwZurdlock, // lrw_rdlock
                  pthread_rwlock_t *, rwlock, long, 0/*!isW*/, long, True);
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: lrw_rlk ->>\n");
+      VG_(printf_stderr)(" :: lrw_rlk ->>\n");
    }
 }
 #endif /* VGO_solaris */
@@ -2387,7 +2375,7 @@ static int pthread_rwlock_trywrlock_WRK(pthread_rwlock_t* rwlock)
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_rwl_trywlk %p", rwlock); fflush(stderr);
+      VG_(printf_stderr)("<< pthread_rwl_trywlk %p", rwlock);
    }
 
    DO_CREQ_v_WWW(_VG_USERREQ__HG_PTHREAD_RWLOCK_LOCK_PRE,
@@ -2410,7 +2398,7 @@ static int pthread_rwlock_trywrlock_WRK(pthread_rwlock_t* rwlock)
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: rwl_trywlk -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: rwl_trywlk -> %d >>\n", ret);
    }
    return ret;
 }
@@ -2453,7 +2441,7 @@ static int pthread_rwlock_tryrdlock_WRK(pthread_rwlock_t* rwlock)
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_rwl_tryrlk %p", rwlock); fflush(stderr);
+      VG_(printf_stderr)("<< pthread_rwl_tryrlk %p", rwlock);
    }
 
    DO_CREQ_v_WWW(_VG_USERREQ__HG_PTHREAD_RWLOCK_LOCK_PRE,
@@ -2477,7 +2465,7 @@ static int pthread_rwlock_tryrdlock_WRK(pthread_rwlock_t* rwlock)
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: rwl_tryrlk -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: rwl_tryrlk -> %d >>\n", ret);
    }
    return ret;
 }
@@ -2521,7 +2509,7 @@ static int pthread_rwlock_timedrdlock_WRK(pthread_rwlock_t *rwlock,
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_rwl_timedrdl %p", rwlock); fflush(stderr);
+      VG_(printf_stderr)("<< pthread_rwl_timedrdl %p", rwlock);
    }
 
    DO_CREQ_v_WWW(_VG_USERREQ__HG_PTHREAD_RWLOCK_LOCK_PRE,
@@ -2538,7 +2526,7 @@ static int pthread_rwlock_timedrdlock_WRK(pthread_rwlock_t *rwlock,
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: rwl_timedrdl -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: rwl_timedrdl -> %d >>\n", ret);
    }
    return ret;
 }
@@ -2581,7 +2569,7 @@ static int pthread_rwlock_timedwrlock_WRK(pthread_rwlock_t *rwlock,
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_rwl_timedwrl %p", rwlock); fflush(stderr);
+      VG_(printf_stderr)("<< pthread_rwl_timedwrl %p", rwlock);
    }
 
    DO_CREQ_v_WWW(_VG_USERREQ__HG_PTHREAD_RWLOCK_LOCK_PRE,
@@ -2598,7 +2586,7 @@ static int pthread_rwlock_timedwrlock_WRK(pthread_rwlock_t *rwlock,
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: rwl_timedwrl -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: rwl_timedwrl -> %d >>\n", ret);
    }
    return ret;
 }
@@ -2639,7 +2627,7 @@ static int pthread_rwlock_unlock_WRK(pthread_rwlock_t* rwlock)
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, "<< pthread_rwl_unlk %p", rwlock); fflush(stderr);
+      VG_(printf_stderr)("<< pthread_rwl_unlk %p", rwlock);
    }
 
    DO_CREQ_v_W(_VG_USERREQ__HG_PTHREAD_RWLOCK_UNLOCK_PRE,
@@ -2654,7 +2642,7 @@ static int pthread_rwlock_unlock_WRK(pthread_rwlock_t* rwlock)
    }
 
    if (TRACE_PTH_FNS) {
-      fprintf(stderr, " :: rwl_unlk -> %d >>\n", ret);
+      VG_(printf_stderr)(" :: rwl_unlk -> %d >>\n", ret);
    }
    return ret;
 }
@@ -2692,7 +2680,7 @@ static int pthread_rwlock_unlock_WRK(pthread_rwlock_t* rwlock)
 #include <semaphore.h>
 #include <fcntl.h>       /* O_CREAT */
 
-#define TRACE_SEM_FNS 0
+#define TRACE_SEM_FNS 1
 
 /* Handled: 
      int sem_init(sem_t *sem, int pshared, unsigned value);
@@ -2715,7 +2703,7 @@ static int pthread_rwlock_unlock_WRK(pthread_rwlock_t* rwlock)
 // glibc:   sem_init@@GLIBC_2.1
 // glibc:   sem_init@GLIBC_2.0
 // darwin:  sem_init
-// FreeBSD: sem_init
+// FreeBSD: sem_init@@FBSD_1.2
 // Solaris: sema_init (sem_init is built on top of sem_init)
 //
 #if !defined(VGO_solaris)
@@ -2727,8 +2715,7 @@ static int sem_init_WRK(sem_t* sem, int pshared, unsigned long value)
    VALGRIND_GET_ORIG_FN(fn);
 
    if (TRACE_SEM_FNS) {
-      fprintf(stderr, "<< sem_init(%p,%d,%lu) ", sem,pshared,value);
-      fflush(stderr);
+      VG_(printf_stderr)("<< sem_init(%p,%d,%lu) ", sem,pshared,value);
    }
 
    CALL_FN_W_WWW(ret, fn, sem,pshared,value);
@@ -2741,19 +2728,13 @@ static int sem_init_WRK(sem_t* sem, int pshared, unsigned long value)
    }
 
    if (TRACE_SEM_FNS) {
-      fprintf(stderr, " sem_init -> %d >>\n", ret);
-      fflush(stderr);
+      VG_(printf_stderr)(" sem_init -> %d >>\n", ret);
    }
 
    return ret;
 }
-#if defined(VGO_linux)
+#if defined(VGO_linux) || defined(VGO_freebsd)
    PTH_FUNC(int, semZuinitZAZa, // sem_init@*
-                 sem_t* sem, int pshared, unsigned long value) {
-      return sem_init_WRK(sem, pshared, value);
-   }
-#elif defined(VGO_freebsd)
-   PTH_FUNC(int, semZuinit, // sem_init
                  sem_t* sem, int pshared, unsigned long value) {
       return sem_init_WRK(sem, pshared, value);
    }
@@ -2778,8 +2759,7 @@ PTH_FUNC(int, semaZuinit, // sema_init
    VALGRIND_GET_ORIG_FN(fn);
 
    if (TRACE_SEM_FNS) {
-      fprintf(stderr, "<< sema_init(%p, %d, %u) ", sem, type, value);
-      fflush(stderr);
+      VG_(printf_stderr)("<< sema_init(%p, %d, %u) ", sem, type, value);
    }
 
    CALL_FN_W_WWWW(ret, fn, sem, value, type, arg);
@@ -2792,8 +2772,7 @@ PTH_FUNC(int, semaZuinit, // sema_init
    }
 
    if (TRACE_SEM_FNS) {
-      fprintf(stderr, " sema_init -> %d >>\n", ret);
-      fflush(stderr);
+      VG_(printf_stderr)(" sema_init -> %d >>\n", ret);
    }
 
    return ret;
@@ -2816,8 +2795,7 @@ static int sem_destroy_WRK(sem_t* sem)
    VALGRIND_GET_ORIG_FN(fn);
 
    if (TRACE_SEM_FNS) {
-      fprintf(stderr, "<< sem_destroy(%p) ", sem);
-      fflush(stderr);
+      VG_(printf_stderr)("<< sem_destroy(%p) ", sem);
    }
 
    DO_CREQ_v_W(_VG_USERREQ__HG_POSIX_SEM_DESTROY_PRE, sem_t*, sem);
@@ -2829,8 +2807,7 @@ static int sem_destroy_WRK(sem_t* sem)
    }
 
    if (TRACE_SEM_FNS) {
-      fprintf(stderr, " sem_destroy -> %d >>\n", ret);
-      fflush(stderr);
+      VG_(printf_stderr)(" sem_destroy -> %d >>\n", ret);
    }
 
    return ret;
@@ -2879,8 +2856,7 @@ static int sem_wait_WRK(sem_t* sem)
    VALGRIND_GET_ORIG_FN(fn);
 
    if (TRACE_SEM_FNS) {
-      fprintf(stderr, "<< sem_wait(%p) ", sem);
-      fflush(stderr);
+      VG_(printf_stderr)("<< sem_wait(%p) ", sem);
    }
 
    DO_CREQ_v_W(_VG_USERREQ__HG_POSIX_SEM_WAIT_PRE, sem_t*,sem);
@@ -2895,8 +2871,7 @@ static int sem_wait_WRK(sem_t* sem)
    }
 
    if (TRACE_SEM_FNS) {
-      fprintf(stderr, " sem_wait -> %d >>\n", ret);
-      fflush(stderr);
+      VG_(printf_stderr)(" sem_wait -> %d >>\n", ret);
    }
 
    return ret;
@@ -2946,8 +2921,7 @@ static int sem_post_WRK(sem_t* sem)
    VALGRIND_GET_ORIG_FN(fn);
 
    if (TRACE_SEM_FNS) {
-      fprintf(stderr, "<< sem_post(%p) ", sem);
-      fflush(stderr);
+      VG_(printf_stderr)("<< sem_post(%p) ", sem);
    }
 
    DO_CREQ_v_W(_VG_USERREQ__HG_POSIX_SEM_POST_PRE, sem_t*,sem);
@@ -2961,8 +2935,7 @@ static int sem_post_WRK(sem_t* sem)
    }
 
    if (TRACE_SEM_FNS) {
-      fprintf(stderr, " sem_post -> %d >>\n", ret);
-      fflush(stderr);
+      VG_(printf_stderr)(" sem_post -> %d >>\n", ret);
    }
 
    return ret;
@@ -3007,9 +2980,8 @@ PTH_FUNC(sem_t*, semZuopen,
    VALGRIND_GET_ORIG_FN(fn);
 
    if (TRACE_SEM_FNS) {
-      fprintf(stderr, "<< sem_open(\"%s\",%ld,%lx,%lu) ",
+      VG_(printf_stderr)("<< sem_open(\"%s\",%ld,%lx,%lu) ",
                       name,oflag,mode,value);
-      fflush(stderr);
    }
 
    CALL_FN_W_WWWW(ret, fn, name,oflag,mode,value);
@@ -3023,8 +2995,7 @@ PTH_FUNC(sem_t*, semZuopen,
    }
 
    if (TRACE_SEM_FNS) {
-      fprintf(stderr, " sem_open -> %p >>\n", ret);
-      fflush(stderr);
+      VG_(printf_stderr)(" sem_open -> %p >>\n", ret);
    }
 
    return ret;
@@ -3043,8 +3014,7 @@ PTH_FUNC(int, sem_close, sem_t* sem)
    VALGRIND_GET_ORIG_FN(fn);
 
    if (TRACE_SEM_FNS) {
-      fprintf(stderr, "<< sem_close(%p) ", sem);
-      fflush(stderr);
+      VG_(printf_stderr)("<< sem_close(%p) ", sem);
    }
 
    DO_CREQ_v_W(_VG_USERREQ__HG_POSIX_SEM_DESTROY_PRE, sem_t*, sem);
@@ -3056,8 +3026,7 @@ PTH_FUNC(int, sem_close, sem_t* sem)
    }
 
    if (TRACE_SEM_FNS) {
-      fprintf(stderr, " close -> %d >>\n", ret);
-      fflush(stderr);
+      VG_(printf_stderr)(" close -> %d >>\n", ret);
    }
 
    return ret;
@@ -3166,7 +3135,7 @@ static void QMutex_lock_WRK(void* self)
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_QT4_FNS) {
-      fprintf(stderr, "<< QMutex::lock %p", self); fflush(stderr);
+      VG_(printf_stderr)("<< QMutex::lock %p", self);
    }
 
    DO_CREQ_v_WW(_VG_USERREQ__HG_PTHREAD_MUTEX_LOCK_PRE,
@@ -3178,7 +3147,7 @@ static void QMutex_lock_WRK(void* self)
                 void *, self, long, True);
 
    if (TRACE_QT4_FNS) {
-      fprintf(stderr, " :: Q::lock done >>\n");
+      VG_(printf_stderr)(" :: Q::lock done >>\n");
    }
 }
 
@@ -3198,7 +3167,7 @@ static void QMutex_unlock_WRK(void* self)
    VALGRIND_GET_ORIG_FN(fn);
 
    if (TRACE_QT4_FNS) {
-      fprintf(stderr, "<< QMutex::unlock %p", self); fflush(stderr);
+      VG_(printf_stderr)("<< QMutex::unlock %p", self);
    }
 
    DO_CREQ_v_W(_VG_USERREQ__HG_PTHREAD_MUTEX_UNLOCK_PRE,
@@ -3210,7 +3179,7 @@ static void QMutex_unlock_WRK(void* self)
                void*, self);
 
    if (TRACE_QT4_FNS) {
-      fprintf(stderr, " Q::unlock done >>\n");
+      VG_(printf_stderr)(" Q::unlock done >>\n");
    }
 }
 
@@ -3231,7 +3200,7 @@ static long QMutex_tryLock_WRK(void* self)
    long   ret;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_QT4_FNS) {
-      fprintf(stderr, "<< QMutex::tryLock %p", self); fflush(stderr);
+      VG_(printf_stderr)("<< QMutex::tryLock %p", self);
    }
 
    DO_CREQ_v_WW(_VG_USERREQ__HG_PTHREAD_MUTEX_LOCK_PRE,
@@ -3244,7 +3213,7 @@ static long QMutex_tryLock_WRK(void* self)
                 void *, self, long, (ret & 0xFF) ? True : False);
 
    if (TRACE_QT4_FNS) {
-      fprintf(stderr, " :: Q::tryLock -> %lu >>\n", ret);
+      VG_(printf_stderr)(" :: Q::tryLock -> %lu >>\n", ret);
    }
    
    return ret;
@@ -3267,8 +3236,7 @@ static long QMutex_tryLock_int_WRK(void* self, long arg2)
    long   ret;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_QT4_FNS) {
-      fprintf(stderr, "<< QMutex::tryLock(int) %p %d", self, (int)arg2);
-      fflush(stderr);
+      VG_(printf_stderr)("<< QMutex::tryLock(int) %p %d", self, (int)arg2);
    }
 
    DO_CREQ_v_WW(_VG_USERREQ__HG_PTHREAD_MUTEX_LOCK_PRE,
@@ -3281,7 +3249,7 @@ static long QMutex_tryLock_int_WRK(void* self, long arg2)
                void *, self, long, (ret & 0xFF) ? True : False);
 
    if (TRACE_QT4_FNS) {
-      fprintf(stderr, " :: Q::tryLock(int) -> %lu >>\n", ret);
+      VG_(printf_stderr)(" :: Q::tryLock(int) -> %lu >>\n", ret);
    }
    
    return ret;
@@ -3310,7 +3278,7 @@ static void* QMutex_constructor_WRK(void* mutex, long recmode)
    long   ret;
    VALGRIND_GET_ORIG_FN(fn);
    CALL_FN_W_WW(ret, fn, mutex, recmode);
-   //   fprintf(stderr, "QMutex constructor 1: %p <- %p %p\n", ret, arg1, arg2);
+   //   VG_(printf_stderr)("QMutex constructor 1: %p <- %p %p\n", ret, arg1, arg2);
    DO_CREQ_v_WW(_VG_USERREQ__HG_PTHREAD_MUTEX_INIT_POST,
                 void*,mutex, long,1/*mbRec*/);
    return (void*)ret;
@@ -3393,9 +3361,8 @@ QT5_FUNC(void*, _ZN6QMutexD2Ev, void* self)
 //   OrigFn fn;
 //   VALGRIND_GET_ORIG_FN(fn);
 //   if (TRACE_QT4_FNS) {
-//      fprintf(stderr, "<< QReadWriteLock::lockForRead %p", self);
-//      fflush(stderr);
-//   }
+//      VG_(printf_stderr)("<< QReadWriteLock::lockForRead %p", self);
+////   }
 //
 //   DO_CREQ_v_WWW(_VG_USERREQ__HG_PTHREAD_RWLOCK_LOCK_PRE,
 //                 void*,self,
@@ -3407,7 +3374,7 @@ QT5_FUNC(void*, _ZN6QMutexD2Ev, void* self)
 //                 void*,self, long,0/*!isW*/, long, True);
 //
 //   if (TRACE_QT4_FNS) {
-//      fprintf(stderr, " :: Q::lockForRead :: done >>\n");
+//      VG_(printf_stderr)(" :: Q::lockForRead :: done >>\n");
 //   }
 //}
 //
@@ -3420,9 +3387,8 @@ QT5_FUNC(void*, _ZN6QMutexD2Ev, void* self)
 //   OrigFn fn;
 //   VALGRIND_GET_ORIG_FN(fn);
 //   if (TRACE_QT4_FNS) {
-//      fprintf(stderr, "<< QReadWriteLock::lockForWrite %p", self);
-//      fflush(stderr);
-//   }
+//      VG_(printf_stderr)("<< QReadWriteLock::lockForWrite %p", self);
+////   }
 //
 //   DO_CREQ_v_WWW(_VG_USERREQ__HG_PTHREAD_RWLOCK_LOCK_PRE,
 //                 void*,self,
@@ -3434,7 +3400,7 @@ QT5_FUNC(void*, _ZN6QMutexD2Ev, void* self)
 //                 void*,self, long,1/*isW*/, long, True);
 //
 //   if (TRACE_QT4_FNS) {
-//      fprintf(stderr, " :: Q::lockForWrite :: done >>\n");
+//      VG_(printf_stderr)(" :: Q::lockForWrite :: done >>\n");
 //   }
 //}
 //
@@ -3447,9 +3413,8 @@ QT5_FUNC(void*, _ZN6QMutexD2Ev, void* self)
 //   OrigFn fn;
 //   VALGRIND_GET_ORIG_FN(fn);
 //   if (TRACE_QT4_FNS) {
-//      fprintf(stderr, "<< QReadWriteLock::unlock %p", self);
-//      fflush(stderr);
-//   }
+//      VG_(printf_stderr)("<< QReadWriteLock::unlock %p", self);
+////   }
 //
 //   DO_CREQ_v_W(_VG_USERREQ__HG_PTHREAD_RWLOCK_UNLOCK_PRE,
 //               void*,self);
@@ -3460,7 +3425,7 @@ QT5_FUNC(void*, _ZN6QMutexD2Ev, void* self)
 //               void*,self);
 //
 //   if (TRACE_QT4_FNS) {
-//      fprintf(stderr, " :: Q::unlock :: done >>\n");
+//      VG_(printf_stderr)(" :: Q::unlock :: done >>\n");
 //   }
 //}
 

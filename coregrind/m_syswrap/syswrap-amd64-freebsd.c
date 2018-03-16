@@ -598,7 +598,7 @@ PRE(sys_pwrite)
       --sim-hints=enable-outer (used for self hosting). */
    ok = ML_(fd_allowed)(ARG1, "write", tid, False);
    if (!ok && ARG1 == 2/*stderr*/
-           && VG_(strstr)(VG_(clo_sim_hints),"enable-outer"))
+           && SimHintiS(SimHint_enable_outer, VG_(clo_sim_hints)))
       ok = True;
    if (!ok)
       SET_STATUS_Failure( VKI_EBADF );
@@ -618,7 +618,7 @@ PRE(sys_pwrite7)
       --sim-hints=enable-outer (used for self hosting). */
    ok = ML_(fd_allowed)(ARG1, "write", tid, False);
    if (!ok && ARG1 == 2/*stderr*/
-           && VG_(strstr)(VG_(clo_sim_hints),"enable-outer"))
+           && SimHintiS(SimHint_enable_outer, VG_(clo_sim_hints)))
       ok = True;
    if (!ok)
       SET_STATUS_Failure( VKI_EBADF );

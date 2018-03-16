@@ -1,6 +1,10 @@
 /*
  * Invoke pthread_cond_destroy() on a condition variable that is being waited
  * upon.
+ * NOTE: POSIX says behavior in this case is undefined. Linux returns an
+ *       EBUSY error, but FreeBSD, for example, always destroys the cond and
+ *       returns success. Our goal is to test Valgrind, not the OS, so we try
+ *       to deal with either system behavior.
  */
 
 #include <assert.h>
@@ -58,7 +62,12 @@ int main(int argc, char** argv)
   pthread_cond_signal(&s_cond);
   pthread_mutex_unlock(&s_mutex);
 
-  pthread_join(threadid, 0);
+  // If the pthread_cond_destroy() succeeded, the thread will never exit
+  // pthread_cond_wait(), so cancel it.
+  if (ret == 0)
+    pthread_cancel(threadid);
+  else
+    pthread_join(threadid, 0);
 
   ret = pthread_cond_destroy(&s_cond);
   fprintf(stderr, "Second pthread_cond_destroy() call returned %s.\n",

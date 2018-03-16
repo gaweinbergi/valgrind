@@ -12,25 +12,18 @@
 #include <stdlib.h>
 #include "config.h"
 
-static volatile int gotsig = 0;
+#define STATE_INIT 0
+#define STATE_EARLY 1
+#define STATE_GOTSIG 4
+
+static volatile int gotsig = STATE_INIT;
 static volatile int early = 1;
+static volatile int savedsig;
 
 static void handler(int sig)
 {
-	printf("4: got signal %s\n",
-		( sig == SIGUSR1 ? "SIGUSR1" : "unexpected signal" ));
-
-	if (sig != SIGUSR1) {
-		fprintf(stderr, "FAILED: got signal %d instead\n", sig);
-		exit(1);
-	}
-
-	if (early) {
-		fprintf(stderr, "FAILED: signal delivered early (in handler)\n");
-		exit(1);
-	}
-
-	gotsig = 1;
+	savedsig = sig;
+	gotsig = early ? STATE_EARLY : STATE_GOTSIG;
 }
 
 int main()
@@ -62,6 +55,21 @@ int main()
 	printf("3: unblocking\n");
 	early = 0;	
 	sigprocmask(SIG_UNBLOCK, &sigusr1, NULL);
+
+	if (gotsig == STATE_EARLY) {
+		fprintf(stderr, "FAILED: signal delivered early (in handler)\n");
+		return 1;
+	};
+	if (gotsig != STATE_GOTSIG) {
+		fprintf(stderr, "FAILED: Invalid state %d\n", gotsig);
+		return 1;
+	}
+	printf("4: got signal %s\n",
+		( savedsig == SIGUSR1 ? "SIGUSR1" : "unexpected signal" ));
+	if (savedsig != SIGUSR1) {
+		fprintf(stderr, "FAILED: got signal %d instead\n", savedsig);
+		return 1;
+	}
 
 	printf("5: unblocked...\n");
 	if (!gotsig) {

@@ -4,10 +4,11 @@
 #include <signal.h>
 #include "tests/sys_mman.h"
 
+int *varaddr = NULL;
+
 void sig_handler(int sig){
   int var;
-  fprintf(stderr, "caught signal, local var is on %#" PRIxPTR "\n",
-          (uintptr_t)&var);
+  varaddr = &var;
 }
 
 int main(int argv, char** argc) {
@@ -41,6 +42,12 @@ int main(int argv, char** argc) {
      actually delivers the signal before the thread exits. */
   for (i = 0; i < 1000000; i++) ;
 
+  if (varaddr == NULL) {
+    fprintf(stderr, "FAILED: did not catch signal\n");
+    return 1;
+  }
+
+  fprintf(stderr, "caught signal, local var is on %p\n", varaddr);
   fprintf(stderr, "done\n");
   return 0;
 }

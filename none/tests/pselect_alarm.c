@@ -48,7 +48,7 @@ main()
     }
     pthread_mutex_unlock(&mutex);
 
-#if defined(VGO_linux)
+#if defined(VGO_linux) || defined(VGO_freebsd)
     assert(pselect(0, NULL, NULL, NULL, NULL, (sigset_t *)12) == -1);
     assert(errno == EFAULT);
 #endif

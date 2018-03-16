@@ -217,7 +217,7 @@ void VG_(sigcomplementset)( vki_sigset_t* dst, const vki_sigset_t* src )
 */
 Int VG_(sigprocmask)( Int how, const vki_sigset_t* set, vki_sigset_t* oldset)
 {
-#  if defined(VGO_linux) || defined(VGO_freebsd) || defined(VGO_solaris)
+#  if defined(VGO_linux) || defined(VGO_solaris) || defined(VGO_freebsd)
 #  if defined(__NR_rt_sigprocmask)
    SysRes res = VG_(do_syscall4)(__NR_rt_sigprocmask, 
                                  how, (UWord)set, (UWord)oldset, 
@@ -315,7 +315,7 @@ Int VG_(sigaction) ( Int signum,
    }
    return sr_isError(res) ? -1 : 0;
 
-#  elif defined(VGO_freebsd) || defined(VGO_solaris)
+#  elif defined(VGO_solaris) || defined(VGO_freebsd)
    /* vki_sigaction_toK_t and vki_sigaction_fromK_t are identical types. */
    SysRes res = VG_(do_syscall3)(__NR_sigaction,
                                  signum, (UWord)act, (UWord)oldact);
@@ -332,7 +332,7 @@ void
 VG_(convert_sigaction_fromK_to_toK)( const vki_sigaction_fromK_t* fromK,
                                      /*OUT*/vki_sigaction_toK_t* toK )
 {
-#  if defined(VGO_linux) || defined(VGO_freebsd) || defined(VGO_solaris)
+#  if defined(VGO_linux) || defined(VGO_solaris) || defined(VGO_freebsd)
    *toK = *fromK;
 #  elif defined(VGO_darwin)
    toK->ksa_handler = fromK->ksa_handler;

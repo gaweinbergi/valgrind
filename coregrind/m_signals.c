@@ -650,7 +650,7 @@ typedef struct SigQueue {
 #if defined(VGO_linux)
 #  define VKI_SIGINFO_si_addr  _sifields._sigfault._addr
 #  define VKI_SIGINFO_si_pid   _sifields._kill._pid
-#elif defined(VGO_darwin) || defined(VGO_freebsd) || defined(VGO_solaris)
+#elif defined(VGO_darwin) || defined(VGO_solaris) || defined(VGO_freebsd)
 #  define VKI_SIGINFO_si_addr  si_addr
 #  define VKI_SIGINFO_si_pid   si_pid
 #else
@@ -1660,12 +1660,18 @@ static Bool is_signal_from_kernel(ThreadId tid, int signum, int si_code)
    // macros but we don't use them here because other platforms don't have
    // them.
    return ( si_code > VKI_SI_USER ? True : False );
-#elif defined(VGO_freebsd)
-   // It looks like there's no reliable way to say where the signal came from
-   if (VG_(threads)[tid].status == VgTs_WaitSys) {
-      return False;
-   } else
-      return True;
+#  elif defined(VGO_freebsd)
+   switch (si_code) {
+      case VKI_SI_USER:
+      case VKI_SI_QUEUE:
+      case VKI_SI_TIMER:
+      case VKI_SI_ASYNCIO:
+      case VKI_SI_MESGQ:
+      case VKI_SI_LWP:
+         return False;
+      default:
+         return True;
+   }
 #  elif defined(VGO_darwin)
    // On Darwin 9.6.0, the si_code is completely unreliable.  It should be the
    // case that 0 means "user", and >0 means "kernel".  But:
@@ -2341,7 +2347,7 @@ static int sanitize_si_code(int si_code)
       mask them off) sign extends them when exporting to user space so
       we do the same thing here. */
    return (Short)si_code;
-#elif defined(VGO_darwin) || defined(VGO_freebsd) || defined(VGO_solaris)
+#elif defined(VGO_darwin) || defined(VGO_solaris) || defined(VGO_freebsd)
    return si_code;
 #else
 #  error Unknown OS

@@ -374,7 +374,7 @@ static inline UWord getRES ( SyscallStatus* st ) {
    return sr_Res(st->sres);
 }
 
-#if defined(VGO_darwin) || defined(VGO_freebsd) || defined(VGO_solaris)
+#if defined(VGO_darwin) || defined(VGO_solaris) || defined(VGO_freebsd)
 static inline UWord getRESHI ( SyscallStatus* st ) {
    vg_assert(st->what == SsComplete);
    vg_assert(!sr_isError(st->sres));

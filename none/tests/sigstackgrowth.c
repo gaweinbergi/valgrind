@@ -33,7 +33,6 @@ static void handler(int sig)
 	char here;
 
 	if (&here < deep) {
-		printf("PASSED\n");
 		exit(0);
 	}
 

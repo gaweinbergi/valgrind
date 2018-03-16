@@ -162,6 +162,12 @@ DECL_TEMPLATE(freebsd, sys_lio_listio);
 DECL_TEMPLATE(freebsd, sys_yield);
 DECL_TEMPLATE(freebsd, sys_thr_sleep);
 DECL_TEMPLATE(freebsd, sys_thr_wakeup);
+DECL_TEMPLATE(freebsd, sys_mq_getsetattr);
+DECL_TEMPLATE(freebsd, sys_mq_notify);
+DECL_TEMPLATE(freebsd, sys_mq_open);
+DECL_TEMPLATE(freebsd, sys_mq_timedreceive);
+DECL_TEMPLATE(freebsd, sys_mq_timedsend);
+DECL_TEMPLATE(freebsd, sys_mq_unlink);
 DECL_TEMPLATE(freebsd, sys_munlockall);
 DECL_TEMPLATE(freebsd, sys___getcwd);
 DECL_TEMPLATE(freebsd, sys_sched_setparam);
@@ -277,6 +283,7 @@ DECL_TEMPLATE(freebsd, sys_thr_kill);
 DECL_TEMPLATE(freebsd, sys_thr_kill2);
 DECL_TEMPLATE(freebsd, sys_fcntl);
 DECL_TEMPLATE(freebsd, sys_ioctl);
+DECL_TEMPLATE(freebsd, sys_pselect);
 #endif   // __PRIV_SYSWRAP_FREEBSD_H
 
 /*--------------------------------------------------------------------*/

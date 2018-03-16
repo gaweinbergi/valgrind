@@ -3,11 +3,16 @@
 
 
 #include <assert.h>
-#include <limits.h>  /* PTHREAD_STACK_MIN */
 #include <stdlib.h>
 #include <stdio.h>
 #include <pthread.h>
 
+#if defined(VGO_freebsd)
+#define MY_STACK_MIN 16384	// XXX
+#else
+#include <limits.h>
+#define MY_STACK_MIN PTHREAD_STACK_MIN
+#endif
 
 static pthread_t s_thread[1000];
 static int       s_arg[1000];
@@ -23,7 +28,7 @@ static void* thread_func(void* p)
     // std::cout << "create " << thread_count << std::endl;
     s_arg[thread_count] = thread_count;
     pthread_attr_init(&attr);
-    pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
+    pthread_attr_setstacksize(&attr, MY_STACK_MIN);
     pthread_create(&s_thread[thread_count], &attr, thread_func,
                    &s_arg[thread_count]);
     pthread_attr_destroy(&attr);
@@ -47,7 +52,7 @@ int main(int argc, char** argv)
   thread_count--;
   // std::cout << "create " << thread_count << std::endl;
   pthread_attr_init(&attr);
-  pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
+  pthread_attr_setstacksize(&attr, MY_STACK_MIN);
   pthread_create(&s_thread[thread_count], &attr, thread_func,
                  &thread_count);
   pthread_attr_destroy(&attr);

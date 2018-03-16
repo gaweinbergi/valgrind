@@ -101,6 +101,11 @@ extern UInt VG_(printf_xml)  ( const HChar *format, ... )
 extern UInt VG_(vprintf_xml) ( const HChar *format, va_list vargs )
                              PRINTF_CHECK(1, 0);
 
+extern UInt VG_(printf_stderr)   ( const HChar *format, ... )
+                                 PRINTF_CHECK(1, 2);
+extern UInt VG_(vprintf_stderr)  ( const HChar *format, va_list vargs )
+                                 PRINTF_CHECK(1, 0);
+
 typedef struct _VgFile VgFile;
 
 extern VgFile *VG_(fopen)    ( const HChar *name, Int flags, Int mode );

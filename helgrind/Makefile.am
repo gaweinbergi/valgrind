@@ -90,7 +90,13 @@ if VGCONF_OS_IS_DARWIN
 noinst_DSYMS = $(noinst_PROGRAMS)
 endif
 
-VGPRELOAD_HELGRIND_SOURCES_COMMON = hg_intercepts.c
+VGPRELOAD_HELGRIND_SOURCES_COMMON = hg_intercepts.c \
+	../coregrind/m_clientstate.c \
+	../coregrind/m_debuglog.c \
+	../coregrind/m_libcfile.c \
+	../coregrind/m_libcprint.c \
+	../coregrind/m_options.c \
+	../coregrind/m_syscall.c
 
 vgpreload_helgrind_@VGCONF_ARCH_PRI@_@VGCONF_OS@_so_SOURCES      = \
 	$(VGPRELOAD_HELGRIND_SOURCES_COMMON)

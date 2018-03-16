@@ -170,6 +170,24 @@ UInt VG_(printf_xml) ( const HChar *format, ... )
    return ret;
 }
 
+// For functions that always write to stderr, but can't use stdio
+OutputSink VG_(stderr_output_sink) = {  2, False }; /* 2 = stderr */
+
+UInt VG_(vprintf_stderr) ( const HChar *format, va_list vargs )
+{
+   return vprintf_WRK( &VG_(stderr_output_sink), format, vargs );
+}
+
+UInt VG_(printf_stderr) ( const HChar *format, ... )
+{
+   UInt ret;
+   va_list vargs;
+   va_start(vargs, format);
+   ret = VG_(vprintf_stderr)(format, vargs);
+   va_end(vargs);
+   return ret;
+}
+
 static UInt emit_WRK ( const HChar* format, va_list vargs )
 {
    if (VG_(clo_xml)) {

@@ -64,11 +64,11 @@ static Bool go(char* OS, char *min_version)
 #elif defined(VGO_darwin)
    if ( 0 == strcmp( OS, "darwin" ) ) return True;
 
-#elif defined(VGO_freebsd)
-   if ( 0 == strcmp( OS, "freebsd" ) ) return True;
-
 #elif defined(VGO_solaris)
    if ( 0 == strcmp( OS, "solaris" ) ) return True;
+
+#elif defined(VGO_freebsd)
+   if ( 0 == strcmp( OS, "freebsd" ) ) return True;
 
 #else
 #  error Unknown OS

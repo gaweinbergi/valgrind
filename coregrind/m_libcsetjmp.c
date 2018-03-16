@@ -379,8 +379,8 @@ __asm__(
 
 /* -------- amd64-{linux,darwin,freebsd,solaris} -------- */
 
-#if defined(VGP_amd64_linux) || defined(VGP_amd64_darwin) \
-    || defined(VGP_amd64_freebsd) || defined(VGP_amd64_solaris)
+#if defined(VGP_amd64_linux) || defined(VGP_amd64_darwin) || \
+    defined(VGP_amd64_solaris) || defined(VGP_amd64_freebsd)
 
 __asm__(
 ".text"  "\n"
@@ -477,14 +477,14 @@ __asm__(
 
 /* -------- x86-{linux,darwin,freebsd,solaris} -------- */
 
-#if defined(VGP_x86_linux) || defined(VGP_x86_darwin) \
-    || defined(VGP_x86_freebsd) || defined(VGP_x86_solaris)
+#if defined(VGP_x86_linux) || defined(VGP_x86_darwin) || \
+    defined(VGP_x86_solaris) || defined(VGP_x86_freebsd)
 
 __asm__(
 ".text"  "\n"
 ""       "\n"
 
-#if defined(VGP_x86_linux) || defined(VGP_x86_freebsd) || defined(VGP_x86_solaris)
+#if defined(VGP_x86_linux) || defined(VGP_x86_solaris) || defined(VGP_x86_freebsd)
 ".global VG_MINIMAL_SETJMP"  "\n"  // eax = jmp_buf
 "VG_MINIMAL_SETJMP:"  "\n"
 
@@ -514,7 +514,7 @@ __asm__(
 "        ret"                      "\n"
 ""       "\n"
 
-#if defined(VGP_x86_linux) || defined(VGP_x86_freebsd) || defined(VGP_x86_solaris)
+#if defined(VGP_x86_linux) || defined(VGP_x86_solaris) || defined(VGP_x86_freebsd)
 ".global VG_MINIMAL_LONGJMP"  "\n"
 "VG_MINIMAL_LONGJMP:"  "\n"    // eax = jmp_buf
 

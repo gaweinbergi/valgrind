@@ -9,7 +9,7 @@
    This file is part of Valgrind, a dynamic binary instrumentation
    framework.
 
-   Copyright (C) 2000-2015 Julian Seward 
+   Copyright (C) 2000-2015 Julian Seward
       jseward@acm.org
 
    This program is free software; you can redistribute it and/or
@@ -56,7 +56,7 @@
 #include "priv_tytypes.h"
 #include "priv_storage.h"
 #include "priv_readdwarf.h"
-#if defined(VGO_linux) || defined(VGO_freebsd) || defined(VGO_solaris)
+#if defined(VGO_linux) || defined(VGO_solaris) || defined(VGO_freebsd)
 # include "priv_readelf.h"
 # include "priv_readdwarf3.h"
 # include "priv_readpdb.h"
@@ -597,8 +597,8 @@ void VG_(di_initialise) ( void )
 /*---                                                        ---*/
 /*--------------------------------------------------------------*/
 
-#if defined(VGO_linux) || defined(VGO_darwin) || defined(VGO_freebsd) \
-    || defined(VGO_solaris)
+#if defined(VGO_linux) || defined(VGO_darwin) || defined(VGO_solaris) \
+    || defined(VGO_freebsd)
 
 /* Helper (indirect) for di_notify_ACHIEVE_ACCEPT_STATE */
 static Bool overlaps_DebugInfoMappings ( const DebugInfoMapping* map1,
@@ -746,7 +746,7 @@ static ULong di_notify_ACHIEVE_ACCEPT_STATE ( struct _DebugInfo* di )
    truncate_DebugInfoMapping_overlaps( di, di->fsm.maps );
 
    /* And acquire new info. */
-#  if defined(VGO_linux) || defined(VGO_freebsd) || defined(VGO_solaris)
+#  if defined(VGO_linux) || defined(VGO_solaris) || defined(VGO_freebsd)
    ok = ML_(read_elf_debug_info)( di );
 #  elif defined(VGO_darwin)
    ok = ML_(read_macho_debug_info)( di );
@@ -1023,7 +1023,7 @@ ULong VG_(di_notify_mmap)( Addr a, Bool allow_SkFileV, Int use_fd )
    vg_assert(sr_Res(preadres) > 0 && sr_Res(preadres) <= sizeof(buf1k) );
 
    /* We're only interested in mappings of object files. */
-#  if defined(VGO_linux) || defined(VGO_freebsd) || defined(VGO_solaris)
+#  if defined(VGO_linux) || defined(VGO_solaris) || defined(VGO_freebsd)
    if (!ML_(is_elf_object_file)( buf1k, (SizeT)sr_Res(preadres), False ))
       return 0;
 #  elif defined(VGO_darwin)
@@ -1332,9 +1332,9 @@ void VG_(di_notify_pdb_debuginfo)( Int fd_obj, Addr avma_obj,
    sres = VG_(stat)(pdbname, &stat_buf);
    if (sr_isError(sres)) {
       VG_(message)(Vg_UserMsg, "Warning: Missing or un-stat-able %s\n",
-                               pdbname);
-   if (VG_(clo_verbosity) > 0)
-      VG_(message)(Vg_UserMsg, "LOAD_PDB_DEBUGINFO: missing: %s\n", pdbname);
+                   pdbname);
+      if (VG_(clo_verbosity) > 0)
+         VG_(message)(Vg_UserMsg, "LOAD_PDB_DEBUGINFO: missing: %s\n", pdbname);
       goto out;
    }
    pdb_mtime = stat_buf.mtime;
@@ -1428,7 +1428,7 @@ void VG_(di_notify_pdb_debuginfo)( Int fd_obj, Addr avma_obj,
    if (pdbname) ML_(dinfo_free)(pdbname);
 }
 
-#endif /* defined(VGO_linux) || defined(VGO_darwin) || defined(VGO_freebsd) || defined(VGO_solaris) */
+#endif /* defined(VGO_linux) || defined(VGO_darwin) || defined(VGO_solaris) || defined(VGO_freebsd) */
 
 
 /*------------------------------------------------------------*/
@@ -1692,7 +1692,7 @@ static void search_all_symtabs ( Addr ptr, /*OUT*/DebugInfo** pdi,
 
       if (!inRange) continue;
 
-      sno = ML_(search_one_symtab) ( 
+      sno = ML_(search_one_symtab) (
                di, ptr, match_anywhere_in_sym, findText );
       if (sno == -1) goto not_found;
       *symno = sno;

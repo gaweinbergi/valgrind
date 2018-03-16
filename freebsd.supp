@@ -35,9 +35,16 @@
 {
    FreeBSD-DRD-pthread_create
    drd:ConflictingAccess
+   ...
    obj:/lib/libthr.so.3
    fun:pthread_create
-   fun:pthread_create
+   ...
+}
+{
+   FreeBSD-DRD-pthread_detach
+   drd:ConflictingAccess
+   obj:/lib/libthr.so.3
+   fun:pthread_detach
    ...
 }
 {

@@ -58,6 +58,7 @@
 
 #include "priv_types_n_macros.h"
 #include "priv_syswrap-generic.h"
+#include "priv_syswrap-main.h"
 #include "priv_syswrap-freebsd.h"
 
 
@@ -350,6 +351,16 @@ SysRes ML_(do_fork) ( ThreadId tid )
          /* restore signal mask */
          VG_(sigprocmask)(VKI_SIG_SETMASK, &fork_saved_mask, NULL);
 
+         /* If --child-silent-after-fork=yes was specified, set the
+            output file descriptors to 'impossible' values.  This is
+            noticed by send_bytes_to_logging_sink in m_libcprint.c, which
+            duly stops writing any further output. */
+         if (VG_(clo_child_silent_after_fork)) {
+            if (!VG_(log_output_sink).is_socket)
+               VG_(log_output_sink).fd = -1;
+            if (!VG_(xml_output_sink).is_socket)
+               VG_(xml_output_sink).fd = -1;
+         }
       } 
       else { 
          /* parent */
@@ -711,6 +722,58 @@ POST(sys_getresgid)
 /* ---------------------------------------------------------------------
    miscellaneous wrappers
    ------------------------------------------------------------------ */
+
+struct pselect_sized_sigset {
+    const vki_sigset_t *ss;
+    vki_size_t ss_len;
+};
+struct pselect_adjusted_sigset {
+    struct pselect_sized_sigset ss; /* The actual syscall arg */
+    vki_sigset_t adjusted_ss;
+};
+
+PRE(sys_pselect)
+{
+   *flags |= SfMayBlock | SfPostOnFail;
+   PRINT("sys_pselect ( %ld, %#lx, %#lx, %#lx, %#lx, %#lx )",
+         SARG1, ARG2, ARG3, ARG4, ARG5, ARG6);
+   PRE_REG_READ6(long, "pselect",
+                 int, n, vki_fd_set *, readfds, vki_fd_set *, writefds,
+                 vki_fd_set *, exceptfds, struct vki_timeval *, timeout,
+                 vki_sigset_t *, sig);
+   // XXX: this possibly understates how much memory is read.
+   if (ARG2 != 0)
+      PRE_MEM_READ( "pselect(readfds)",
+		     ARG2, ARG1/8 /* __FD_SETSIZE/8 */ );
+   if (ARG3 != 0)
+      PRE_MEM_READ( "pselect(writefds)",
+		     ARG3, ARG1/8 /* __FD_SETSIZE/8 */ );
+   if (ARG4 != 0)
+      PRE_MEM_READ( "pselect(exceptfds)",
+		     ARG4, ARG1/8 /* __FD_SETSIZE/8 */ );
+   if (ARG5 != 0)
+      PRE_MEM_READ( "pselect(timeout)", ARG5, sizeof(struct vki_timeval) );
+   if (ARG6 != 0) {
+      const vki_sigset_t *ss_orig = (vki_sigset_t *)ARG6;
+      size_t ss_size = sizeof(vki_sigset_t);
+      PRE_MEM_READ( "pselect(sig)", ARG6, ss_size );
+      if (ML_(safe_to_deref)(ss_orig, ss_size)) {
+         vki_sigset_t *ss_sanitized = VG_(malloc)("syswrap.pselect.1", ss_size);
+         *ss_sanitized = *ss_orig;
+         VG_(sanitize_client_sigmask)(ss_sanitized);
+         ARG6 = (Addr)ss_sanitized;
+      } else {
+         ARG6 = 1; /* Something recognisable to POST() hook. */
+      }
+   }
+}
+
+POST(sys_pselect)
+{
+   if (ARG6 != 0 && ARG6 != 1) {
+       VG_(free)((vki_sigset_t *)ARG6);
+   }
+}
 
 #if 0
 PRE(sys_exit_group)
@@ -1503,6 +1566,8 @@ PRE(sys_inotify_rm_watch)
    PRE_REG_READ2(long, "inotify_rm_watch", int, fd, int, wd);
 }
 
+#endif // #if 0
+
 /* ---------------------------------------------------------------------
    mq_* wrappers
    ------------------------------------------------------------------ */
@@ -1510,7 +1575,7 @@ PRE(sys_inotify_rm_watch)
 PRE(sys_mq_open)
 {
    PRINT("sys_mq_open( %#lx(%s), %ld, %lld, %#lx )",
-         ARG1,(char *)ARG1,ARG2,(ULong)ARG3,ARG4);
+         ARG1,(HChar *)ARG1,ARG2,(ULong)ARG3,ARG4);
    PRE_REG_READ4(long, "mq_open",
                  const char *, name, int, oflag, vki_mode_t, mode,
                  struct mq_attr *, attr);
@@ -1531,7 +1596,7 @@ POST(sys_mq_open)
       SET_STATUS_Failure( VKI_EMFILE );
    } else {
       if (VG_(clo_track_fds))
-         ML_(record_fd_open_with_given_name)(tid, RES, (Char*)ARG1);
+         ML_(record_fd_open_with_given_name)(tid, RES, (HChar*)ARG1);
    }
 }
 
@@ -1625,7 +1690,6 @@ POST(sys_mq_getsetattr)
       POST_MEM_WRITE( ARG3, sizeof(struct vki_mq_attr) );
 }
 
-#endif
 
 /* ---------------------------------------------------------------------
    clock_* wrappers
@@ -3039,6 +3103,32 @@ PRE(sys_eaccess)
    *at wrappers
    ------------------------------------------------------------------ */
 
+/* Handles the case where the open is of /proc/curproc/cmdline or
+   /proc/<pid>/cmdline. Just give it a copy of VG_(cl_cmdline_fd) for the
+   fake file we cooked up at startup (in m_main).  Also, seek the
+   cloned fd back to the start. */
+static Bool handle_cmdline_open(SyscallStatus *status, const HChar *filename)
+{
+   if (!ML_(safe_to_deref)((const void *) filename, 1))
+      return False;
+
+   HChar name[VKI_PATH_MAX];    // large enough
+   VG_(sprintf)(name, "/proc/%d/cmdline", VG_(getpid)());
+
+   if (!VG_STREQ(filename, name) && !VG_STREQ(filename, "/proc/curproc/cmdline"))
+      return False;
+
+   SysRes sres = VG_(dup)(VG_(cl_cmdline_fd));
+   SET_STATUS_from_SysRes(sres);
+   if (!sr_isError(sres)) {
+      OffT off = VG_(lseek)(sr_Res(sres), 0, VKI_SEEK_SET);
+      if (off < 0)
+         SET_STATUS_Failure(VKI_EMFILE);
+   }
+
+   return True;
+}
+
 PRE(sys_openat)
 {
 
@@ -3058,6 +3148,9 @@ PRE(sys_openat)
       SET_STATUS_Failure( VKI_EBADF );
    else
       PRE_MEM_RASCIIZ( "openat(filename)", ARG2 );
+
+   if (handle_cmdline_open(status, (const HChar *) ARG2))
+      return;
 
    /* Otherwise handle normally */
    *flags |= SfMayBlock;
@@ -4378,13 +4471,13 @@ const SyscallTableEntry ML_(syscall_table)[] = {
    BSDX_(__NR_thr_new,			sys_thr_new),			// 455
 
    // sigqueue								   456
-   // kmq_open								   457
-   // kmq_setattr							   458
-   // kmq_timedreceive							   459
+   BSDXY(__NR_kmq_open,			sys_mq_open),			// 457
+   BSDXY(__NR_kmq_setattr,		sys_mq_getsetattr),		// 458
+   BSDX_(__NR_kmq_timedreceive,		sys_mq_timedreceive),		// 459
 
-   // kmq_timedsend							   460
-   // kmq_notify							   461
-   // kmq_unlink							   462
+   BSDX_(__NR_kmq_timedsend,		sys_mq_timedsend),		// 460
+   BSDX_(__NR_kmq_notify,		sys_mq_notify),			// 461
+   BSDX_(__NR_kmq_unlink,		sys_mq_unlink),			// 462
    // abort2								   463
 
    BSDX_(__NR_thr_set_name,		sys_thr_set_name),		// 464
@@ -4445,6 +4538,8 @@ const SyscallTableEntry ML_(syscall_table)[] = {
 
    BSDXY(__NR___semctl,			sys___semctl),			// 510
    BSDXY(__NR_shmctl,			sys_shmctl),			// 512
+
+   BSDXY(__NR_pselect,			sys_pselect),			// 522
 
    BSDX_(__NR_posix_fallocate,		sys_posix_fallocate),		// 530
    BSDX_(__NR_posix_fadvise,		sys_posix_fadvise),		// 531

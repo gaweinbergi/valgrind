@@ -1909,7 +1909,7 @@ Addr VG_(am_get_advisory) ( const MapRequest*  req,
    Addr holeStart, holeEnd, holeLen;
    Bool fixed_not_required;
 
-#if defined(VGO_solaris)
+#if defined(VGO_solaris) || defined(VGO_freebsd)
    Addr startPoint = forClient ? aspacem_vStart - 1 : aspacem_maxAddr - 1;
 #else
    Addr startPoint = forClient ? aspacem_cStart : aspacem_vStart;

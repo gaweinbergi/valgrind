@@ -10,7 +10,6 @@ const char kSigbus[] = "I caught the SIGBUS signal!\n";
 int GLOB = 3;
 
 void mysigbus() {
-   write(1, kSigbus, sizeof(kSigbus)-1);
    GLOB--;
    return;
 }
@@ -24,7 +23,10 @@ int main() {
       perror("ERROR:");
    }
    while(GLOB) {
+      int oldglob = GLOB;
       kill(getpid(), SIGBUS);
+      if (GLOB == oldglob - 1)
+         write(1, kSigbus, sizeof(kSigbus)-1);
    };
    return 0;
 }

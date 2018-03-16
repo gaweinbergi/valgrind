@@ -25,7 +25,7 @@ int main(int argc, char **argv)
   mqa.mq_maxmsg = MSGMAX;
   mqa.mq_msgsize = MSGSIZEMAX;
   
-  if ((mqdw = mq_open("/valgrind-mqueue", O_CREAT|O_EXCL|O_WRONLY, 0600, &mqa)) < 0)
+  if ((mqdw = mq_open("/valgrind-mqueue", O_CREAT|O_EXCL|O_WRONLY, 0600, &mqa)) == (mqd_t)-1)
     {
       if (errno == ENOSYS)
         exit(0);
@@ -33,7 +33,7 @@ int main(int argc, char **argv)
       exit(1);
     }
 
-  if ((mqdr = mq_open("/valgrind-mqueue", O_RDONLY)) < 0)
+  if ((mqdr = mq_open("/valgrind-mqueue", O_RDONLY)) == (mqd_t)-1)
     {
       perror("mq_open");
       mq_unlink("/valgrind-mqueue");

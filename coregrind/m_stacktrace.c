@@ -94,7 +94,7 @@ do {                                                                  \
 /* ------------------------ x86 ------------------------- */
 
 #if defined(VGP_x86_linux) || defined(VGP_x86_darwin) \
-    || defined(VGP_x86_freebsd) || defined(VGP_x86_solaris)
+    || defined(VGP_x86_solaris) || defined(VGP_x86_freebsd)
 
 #define N_FP_CF_VERIF 1021
 // prime number so that size of fp_CF_verif is just below 4K or 8K
@@ -499,7 +499,7 @@ UInt VG_(get_StackTrace_wrk) ( ThreadId tid_if_known,
 /* ----------------------- amd64 ------------------------ */
 
 #if defined(VGP_amd64_linux) || defined(VGP_amd64_darwin) \
-    || defined(VGP_amd64_freebsd) || defined(VGP_amd64_solaris)
+    || defined(VGP_amd64_solaris) || defined(VGP_amd64_freebsd)
 
 UInt VG_(get_StackTrace_wrk) ( ThreadId tid_if_known,
                                /*OUT*/Addr* ips, UInt max_n_ips,

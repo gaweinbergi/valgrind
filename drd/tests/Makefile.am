@@ -184,6 +184,7 @@ EXTRA_DIST =                                        \
 	pth_cleanup_handler.stderr.exp		    \
 	pth_cleanup_handler.vgtest		    \
 	pth_cond_destroy_busy.stderr.exp            \
+	pth_cond_destroy_busy.stderr.exp-freebsd    \
 	pth_cond_destroy_busy.stderr.exp-solaris    \
 	pth_cond_destroy_busy.vgtest                \
 	pth_cond_race.stderr.exp                    \

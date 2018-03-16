@@ -78,8 +78,8 @@
 
 #if defined(PLAT_amd64_linux) || defined(PLAT_x86_linux) \
     || defined(PLAT_amd64_darwin) || defined(PLAT_x86_darwin) \
-    || defined(PLAT_amd64_freebsd) || defined(PLAT_x86_freebsd) \
-    || defined(PLAT_amd64_solaris) || defined(PLAT_x86_solaris)
+    || defined(PLAT_amd64_solaris) || defined(PLAT_x86_solaris) \
+    || defined(PLAT_amd64_freebsd) || defined(PLAT_x86_freebsd)
 #  define INC(_lval,_lqual)	     \
       __asm__ __volatile__ ( \
       "lock ; incl (%0)" : /*out*/ : /*in*/"r"(&(_lval)) : "memory", "cc" )

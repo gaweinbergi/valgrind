@@ -30,8 +30,8 @@
    The GNU General Public License is contained in the file COPYING.
 */
 
-#if defined(VGO_linux) || defined(VGO_darwin) || defined(VGO_freebsd) \
-    || defined(VGO_solaris)
+#if defined(VGO_linux) || defined(VGO_darwin) || defined(VGO_solaris) \
+    || defined(VGO_freebsd)
 
 #include "pub_core_basics.h"
 #include "pub_core_vki.h"
@@ -2888,7 +2888,7 @@ PRE(sys_execve)
 
    if (ARG2 != 0)
       ML_(pre_argv_envp)( ARG2, tid, "execve(argv)", "execve(argv[i])" );
-#if defined(VGO_freebsd) || defined(VGO_solaris)
+#if defined(VGO_solaris) || defined(VGO_freebsd)
    else {
       // argv of NULL is not supported on FreeBSD or Solaris
       SET_STATUS_Failure( VKI_EFAULT );
@@ -4707,7 +4707,7 @@ PRE(sys_sethostname)
 #undef PRE
 #undef POST
 
-#endif // defined(VGO_linux) || defined(VGO_darwin) || defined(VGO_freebsd) || defined(VGO_solaris)
+#endif // defined(VGO_linux) || defined(VGO_darwin) || defined(VGO_solaris) || defined(VGO_freebsd)
 
 /*--------------------------------------------------------------------*/
 /*--- end                                                          ---*/

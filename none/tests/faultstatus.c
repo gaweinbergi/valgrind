@@ -43,12 +43,15 @@
 
 struct test {
 	void (*test)(void);
-	int sig;
-	int code;
-	volatile void *addr;
+	int sig_act;
+	int sig_want;
+	int code_act;
+	int code_want;
+	void *addr_act;
+	void volatile *addr_want;
 };
 
-static const struct test *cur_test;
+static struct test *cur_test;
 
 static int zero();
 
@@ -61,53 +64,13 @@ static sigjmp_buf escape;
 static unsigned int __pagesize;
 static char volatile *volatile mapping;
 
-static int testsig(int sig, int want)
-{
-	if (sig != want) {
-		fprintf(stderr, "  FAIL: expected signal %d, not %d\n", want, sig);
-		return 0;
-	} 
-	return 1;
-}
-
-static int testcode(int code, int want)
-{
-	if (code != want) {
-		fprintf(stderr, "  FAIL: expected si_code==%d, not %d\n", want, code);
-		return 0;
-	}
-	return 1;
-}
-
-static int testaddr(void *addr, volatile void *want)
-{
-	/* Some architectures (e.g. s390) just provide enough information to
-         resolve the page fault, but do not provide the offset within a page */
-#if defined(__s390__)
-	if (addr != (void *) ((unsigned long) want & ~0xffful)) {
-#else
-	if (addr != want) {
-#endif
-		fprintf(stderr, "  FAIL: expected si_addr==%p, not %p\n", want, addr);
-		return 0;
-	}
-	return 1;
-
-}
-
 static void handler(int sig, siginfo_t *si, void *uc)
 {
-	int ok = 1;
+	cur_test->sig_act = sig;
+	cur_test->code_act = si->si_code;
+	cur_test->addr_act = si->si_addr;
 
-	ok = ok && testsig(sig, cur_test->sig);
-	ok = ok && testcode(si->si_code, cur_test->code);
-	if (cur_test->addr)
-		ok = ok && testaddr(si->si_addr, cur_test->addr);
-
-	if (ok)
-		fprintf(stderr, "  PASS\n");
-
-	siglongjmp(escape, ok + 1);
+	siglongjmp(escape, 1);
 }
 
 
@@ -138,7 +101,7 @@ static void test4()
 
 int main()
 {
-	int fd, i;
+	int fd, i, ok;
 	static const int sigs[] = { SIGSEGV, SIGILL, SIGBUS, SIGFPE, SIGTRAP };
 	struct sigaction sa;
 	__pagesize = (unsigned int)sysconf(_SC_PAGE_SIZE);
@@ -162,13 +125,16 @@ int main()
 	close(fd);
 
 	{
-		const struct test tests[] = {
-#define T(n, sig, code, addr) { test##n, sig, code, addr }
+		struct test tests[] = {
+#define T(n, sig, code, addr) { test##n, 0, sig, 0, code, NULL, addr }
 			T(1, SIGSEGV, SEGV_MAPERR,	BADADDR),
-			T(2, SIGSEGV, SEGV_ACCERR,	mapping),
 #if defined(VGO_freebsd)
-			T(3, SIGSEGV, BUS_ERROR_SI_CODE, &mapping[FILESIZE+10]),
+// FIXME: Workaround until we can get Valgrind to properly load
+//        the PT_NOTE section of the client executable.
+			T(2, SIGBUS, BUS_PAGE_FAULT,	mapping),
+			T(3, SIGBUS, BUS_PAGE_FAULT,	&mapping[FILESIZE+10]),
 #else
+			T(2, SIGSEGV, SEGV_ACCERR,	mapping),
 			T(3, SIGBUS,  BUS_ERROR_SI_CODE, &mapping[FILESIZE+10]),
 #endif
 			T(4, SIGFPE,  DIVISION_BY_ZERO_SI_CODE, 0),
@@ -178,11 +144,35 @@ int main()
 		for(i = 0; i < sizeof(tests)/sizeof(*tests); i++) {
 			cur_test = &tests[i];
 		
-			if (sigsetjmp(escape, 1) == 0) {
+			if ((ok = sigsetjmp(escape, 1)) == 0) {
 				fprintf(stderr, "Test %d: ", i+1);
 				tests[i].test();
 				fprintf(stderr, "  FAIL: no fault, or handler returned\n");
 			}
+			if (cur_test->sig_act != cur_test->sig_want)
+				fprintf(stderr,
+					"  FAIL: expected signal %d, not %d\n",
+					cur_test->sig_want, cur_test->sig_act);
+			else if (cur_test->code_act != cur_test->code_want)
+				fprintf(stderr,
+					"  FAIL: expected si_code==%d, not %d\n",
+					cur_test->code_want, cur_test->code_act);
+			else if (cur_test->addr_want &&
+				/* Some architectures (e.g. s390) just provide
+				 * enough information to resolve the page fault,
+				 * but do not provide the offset within a page
+				 */
+#if defined(__s390__)
+			       (cur_test->addr_act !=
+				(void *)((unsigned long)cur_test->addr_want & ~0xffful)))
+#else
+			       (cur_test->addr_act != cur_test->addr_want))
+#endif
+				fprintf(stderr,
+					"  FAIL: expected si_addr==%p, not %p\n",
+					cur_test->addr_want, cur_test->addr_act);
+			else
+				fprintf(stderr, "  PASS\n");
 		}
 	}
 

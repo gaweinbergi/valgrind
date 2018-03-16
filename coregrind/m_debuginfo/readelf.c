@@ -29,7 +29,7 @@
    The GNU General Public License is contained in the file COPYING.
 */
 
-#if defined(VGO_linux) || defined(VGO_freebsd) || defined(VGO_solaris)
+#if defined(VGO_linux) || defined(VGO_solaris) || defined(VGO_freebsd)
 
 #include "pub_core_basics.h"
 #include "pub_core_vki.h"
@@ -2748,8 +2748,8 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
                   const DebugInfoMapping* map = VG_(indexXA)(di->fsm.maps, j);
                   if (   a_phdr.p_offset >= map->foff
                       && a_phdr.p_offset <  map->foff + map->size
-                      && a_phdr.p_offset + a_phdr.p_filesz
-                         < map->foff + map->size) {
+                      && ((a_phdr.p_offset + a_phdr.p_filesz) & ~(VKI_PAGE_SIZE - 1))
+                          < map->foff + map->size) {
                      if (map->rx && rx_dsvma_limit == 0) {
                         rx_dsvma_limit = a_phdr.p_vaddr + a_phdr.p_memsz;
                         rx_dbias = map->avma - map->foff + a_phdr.p_offset
@@ -3226,7 +3226,7 @@ Bool ML_(read_elf_debug_info) ( struct _DebugInfo* di )
    /* NOTREACHED */
 }
 
-#endif // defined(VGO_linux) || defined(VGO_freebsd) || defined(VGO_solaris)
+#endif // defined(VGO_linux) || defined(VGO_solaris) || defined(VGO_freebsd)
 
 /*--------------------------------------------------------------------*/
 /*--- end                                                          ---*/

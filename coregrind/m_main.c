@@ -1514,7 +1514,11 @@ static void print_preamble ( Bool logging_to_fd,
 
 /* Number of file descriptors that Valgrind tries to reserve for
    its own use - just a small constant. */
+#if defined(VGO_freebsd)
 #define N_RESERVED_FDS (20)
+#else
+#define N_RESERVED_FDS (12)
+#endif
 
 static void setup_file_descriptors(void)
 {
@@ -1942,8 +1946,8 @@ Int valgrind_main ( Int argc, HChar **argv, HChar **envp )
    if (!need_help) {
       VG_(debugLog)(1, "main", "Create initial image\n");
 
-#     if defined(VGO_linux) || defined(VGO_darwin) || defined(VGO_freebsd) \
-	 || defined(VGO_solaris)
+#     if defined(VGO_linux) || defined(VGO_darwin) || defined(VGO_solaris) \
+	 || defined(VGO_freebsd)
       the_iicii.argv              = argv;
       the_iicii.envp              = envp;
       the_iicii.toolname          = toolname;
@@ -1982,14 +1986,14 @@ Int valgrind_main ( Int argc, HChar **argv, HChar **envp )
    VG_(cl_psinfo_fd) = -1;
 #endif
 
-#if defined(VGO_linux) || defined(VGO_solaris)
+#if defined(VGO_linux) || defined(VGO_solaris) || defined(VGO_freebsd)
    if (!need_help) {
       HChar  buf[50];   // large enough
       HChar  buf2[VG_(mkstemp_fullname_bufsz)(sizeof buf - 1)];
       Int    fd, r;
 
-#if defined(VGO_linux) || defined(SOLARIS_PROC_CMDLINE)
-      /* Fake /proc/<pid>/cmdline only on Linux and Solaris if supported. */
+#if defined(VGO_linux) || defined(SOLARIS_PROC_CMDLINE) || defined(VGO_freebsd)
+      /* Fake /proc/<pid>/cmdline where supported. */
       HChar  nul[1];
       const HChar* exename;
 
@@ -2021,8 +2025,9 @@ Int valgrind_main ( Int argc, HChar **argv, HChar **envp )
          VG_(err_config_error)("Can't delete client cmdline file in %s\n", buf2);
 
       VG_(cl_cmdline_fd) = fd;
-#endif // defined(VGO_linux) || defined(SOLARIS_PROC_CMDLINE)
+#endif // defined(VGO_linux) || defined(SOLARIS_PROC_CMDLINE) || defined(VGO_freebsd)
 
+#if !defined(VGO_freebsd)
       /* Fake /proc/<pid>/auxv on both Linux and Solaris. */
       VG_(debugLog)(1, "main", "Create fake /proc/<pid>/auxv\n");
 
@@ -2052,6 +2057,7 @@ Int valgrind_main ( Int argc, HChar **argv, HChar **envp )
          VG_(err_config_error)("Can't delete client auxv file in %s\n", buf2);
 
       VG_(cl_auxv_fd) = fd;
+#endif // !define(VGO_freebsd)
 
 #if defined(VGO_solaris)
       /* Fake /proc/<pid>/psinfo on Solaris.
@@ -2210,7 +2216,7 @@ Int valgrind_main ( Int argc, HChar **argv, HChar **envp )
    addr2dihandle = VG_(newXA)( VG_(malloc), "main.vm.2",
                                VG_(free), sizeof(Addr_n_ULong) );
 
-#  if defined(VGO_linux) || defined(VGO_freebsd) || defined(VGO_solaris)
+#  if defined(VGO_linux) || defined(VGO_solaris) || defined(VGO_freebsd)
    { Addr* seg_starts;
      Int   n_seg_starts;
      Addr_n_ULong anu;

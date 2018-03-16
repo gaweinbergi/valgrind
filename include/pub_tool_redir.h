@@ -242,7 +242,7 @@
 
 /* --- Soname of the standard C library. --- */
 
-#if defined(VGO_linux) || defined(VGO_freebsd) || defined(VGO_solaris)
+#if defined(VGO_linux) || defined(VGO_solaris) || defined(VGO_freebsd)
 #  define  VG_Z_LIBC_SONAME  libcZdsoZa              // libc.so*
 
 #elif defined(VGO_darwin) && (DARWIN_VERS <= DARWIN_10_6)

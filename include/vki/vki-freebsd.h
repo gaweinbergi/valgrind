@@ -491,11 +491,14 @@ typedef struct vki_siginfo {
 /*
  * si_code values
  */
-#define VKI_SI_USER	0x10001		/* sent by kill, sigsend, raise */
-#define VKI_SI_QUEUE	0x10002
-#define VKI_SI_TIMER	0x10003
-#define VKI_SI_ASYNCIO	0x10004
-#define VKI_SI_MESGQ	0x10005
+#define VKI_SI_NOINFO	0
+#define VKI_SI_USER	0x10001	/* sent by kill, sigsend, raise */
+#define VKI_SI_QUEUE	0x10002	/* sent by sigqueue() */
+#define VKI_SI_TIMER	0x10003	/* sent by expiration of timer_settime() */
+#define VKI_SI_ASYNCIO	0x10004	/* sent by completion of async I/O request */
+#define VKI_SI_MESGQ	0x10005	/* sent by arrival of message on empty mq */
+#define VKI_SI_KERNEL	0x10006	/* sent by kernel */
+#define VKI_SI_LWP	0x10007	/* sent by thr_kill */
 
 /*
  * SIGILL si_codes

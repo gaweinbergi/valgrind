@@ -231,7 +231,7 @@ Int VG_(fd_open) (const HChar* pathname, Int flags, Int mode)
 void VG_(close) ( Int fd )
 {
    /* Hmm.  Return value is not checked.  That's uncool. */
-#  if defined(VGO_linux) || defined(VGO_freebsd) || defined(VGO_solaris)
+#  if defined(VGO_linux) || defined(VGO_solaris) || defined(VGO_freebsd)
    (void)VG_(do_syscall1)(__NR_close, fd);
 #  elif defined(VGO_darwin)
    (void)VG_(do_syscall1)(__NR_close_nocancel, fd);
@@ -243,7 +243,7 @@ void VG_(close) ( Int fd )
 Int VG_(read) ( Int fd, void* buf, Int count)
 {
    Int    ret;
-#  if defined(VGO_linux) || defined(VGO_freebsd) || defined(VGO_solaris)
+#  if defined(VGO_linux) || defined(VGO_solaris) || defined(VGO_freebsd)
    SysRes res = VG_(do_syscall3)(__NR_read, fd, (UWord)buf, count);
 #  elif defined(VGO_darwin)
    SysRes res = VG_(do_syscall3)(__NR_read_nocancel, fd, (UWord)buf, count);
@@ -263,7 +263,7 @@ Int VG_(read) ( Int fd, void* buf, Int count)
 Int VG_(write) ( Int fd, const void* buf, Int count)
 {
    Int    ret;
-#  if defined(VGO_linux) || defined(VGO_freebsd) || defined(VGO_solaris)
+#  if defined(VGO_linux) || defined(VGO_solaris) || defined(VGO_freebsd)
    SysRes res = VG_(do_syscall3)(__NR_write, fd, (UWord)buf, count);
 #  elif defined(VGO_darwin)
    SysRes res = VG_(do_syscall3)(__NR_write_nocancel, fd, (UWord)buf, count);
@@ -553,7 +553,7 @@ SysRes VG_(dup2) ( Int oldfd, Int newfd )
 /* Returns -1 on error. */
 Int VG_(fcntl) ( Int fd, Int cmd, Addr arg )
 {
-#  if defined(VGO_linux) || defined(VGO_freebsd) || defined(VGO_solaris)
+#  if defined(VGO_linux) || defined(VGO_solaris) || defined(VGO_freebsd)
    SysRes res = VG_(do_syscall3)(__NR_fcntl, fd, cmd, arg);
 #  elif defined(VGO_darwin)
    SysRes res = VG_(do_syscall3)(__NR_fcntl_nocancel, fd, cmd, arg);
@@ -1090,8 +1090,8 @@ UShort VG_(ntohs) ( UShort x )
 */
 Int VG_(connect_via_socket)( const HChar* str )
 {
-#  if defined(VGO_linux) || defined(VGO_darwin) || defined(VGO_freebsd) \
-      || defined(VGO_solaris)
+#  if defined(VGO_linux) || defined(VGO_darwin) || defined(VGO_solaris) \
+      || defined(VGO_freebsd)
    Int sd, res;
    struct vki_sockaddr_in servAddr;
    UInt   ip   = 0;

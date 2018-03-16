@@ -67,7 +67,7 @@ HChar** VG_(client_envp) = NULL;
 const HChar *VG_(libdir) = VG_LIBDIR;
 
 const HChar *VG_(LD_PRELOAD_var_name) =
-#if defined(VGO_linux) || defined(VGO_freebsd) || defined(VGO_solaris)
+#if defined(VGO_linux) || defined(VGO_solaris) || defined(VGO_freebsd)
    "LD_PRELOAD";
 #elif defined(VGO_darwin)
    "DYLD_INSERT_LIBRARIES";
@@ -813,7 +813,7 @@ Int VG_(getgroups)( Int size, UInt* list )
         || defined(VGP_ppc64be_linux) || defined(VGP_ppc64le_linux)  \
         || defined(VGO_darwin) || defined(VGP_s390x_linux)    \
         || defined(VGP_mips32_linux) || defined(VGP_arm64_linux) \
-        || defined(VGO_freebsd) || defined(VGO_solaris)
+        || defined(VGO_solaris) || defined(VGO_freebsd)
    SysRes sres;
    sres = VG_(do_syscall2)(__NR_getgroups, size, (Addr)list);
    if (sr_isError(sres))

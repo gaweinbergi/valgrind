@@ -5,10 +5,11 @@
 #include <unistd.h>
 
 static struct sigaction oldChildHandlerData;
+static int handledsig = 0;
 
 void theHandler(int arg)
 {
-  printf("handled %s\n", arg == SIGCHLD ? "SIGCHLD" : "?!unexpected signal?!" );
+  handledsig = arg;
 }
 
 void setupHandlers()
@@ -48,5 +49,7 @@ int main()
         __attribute__((unused)) ssize_t nw = write(2, buffer, n);
     }
     pclose(p);
+    printf("handled %s\n",
+           handledsig == SIGCHLD ? "SIGCHLD" : "?!unexpected signal?!" );
     return 0;
 }
