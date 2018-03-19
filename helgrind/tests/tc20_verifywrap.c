@@ -280,10 +280,11 @@ int main ( void )
    r= sem_init(&s1, 0, 0);
 
    /* in glibc, sem_destroy is a no-op; making it fail is
-      impossible. */
+      impossible. [See below; fails properly on FreeBSD] */
+#if !defined(VGO_freebsd)
    fprintf(stderr, "\nFIXME: can't figure out how to verify wrap of "
                    "sem_destroy\n\n");
-
+#endif
    /* verifies wrap of sem_wait */
    /* Do 'wait' on a bogus semaphore.  This should fail, but on glibc
       it succeeds. */
@@ -292,8 +293,10 @@ int main ( void )
 
    /* this only fails with glibc 2.7 or later. */
    r= sem_post(&s1);
+#if !defined(VGO_freebsd)
    fprintf(stderr, "\nFIXME: can't figure out how to verify wrap of "
                    "sem_post\n\n");
+#endif
 
    sem_destroy(&s1);
 

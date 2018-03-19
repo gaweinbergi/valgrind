@@ -20,7 +20,7 @@
    obj:/libexec/ld-elf.so.1
 }
 {
-   FreeBSE-libc-puts-leak
+   FreeBSD-libc-puts-leak
    memcheck:Leak
    fun:malloc
    obj:/lib/libc.so.7
@@ -38,6 +38,14 @@
    ...
    obj:/lib/libthr.so.3
    fun:pthread_create
+   ...
+}
+{
+   FreeBSD-DRD-snprintf
+   drd:ConflictingAccess
+   ...
+   obj:/lib/libc.so.7
+   fun:snprintf
    ...
 }
 {
@@ -67,6 +75,15 @@
    FreeBSD-DRD-flockfile
    drd:ConflictingAccess
    fun:flockfile
+   ...
+}
+{
+   FreeBSD-vgDrd_sema_destroy
+   drd:ConflictingAccess
+   obj:/libexec/ld-elf.so.1
+   ...
+   obj:/libexec/ld-elf.so.1
+   fun:vgDrd_sema_destroy
    ...
 }
 

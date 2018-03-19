@@ -66,11 +66,5 @@ mutex 0x........ was first observed at:
    at 0x........: pthread_mutex_init (drd_pthread_intercepts.c:?)
    by 0x........: main (tc23_bogus_condwait.c:54)
 
-Assertion failed: (!r), function main, file tc23_bogus_condwait.c, line 96.
-
-Process terminating with default action of signal 6 (SIGABRT)
-   at 0x........: __kill (in /...libc...)
-   by 0x........: __assert_rtn (in /...libc...)
-   by 0x........: main (tc23_bogus_condwait.c:96)
 
 ERROR SUMMARY: 10 errors from 8 contexts (suppressed: 0 from 0)

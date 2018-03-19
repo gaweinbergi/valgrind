@@ -167,7 +167,9 @@ static void producer(int* id)
 static void consumer(int* id)
 {
   int d;
-  usleep(rand() % MAXSLEEP);
+  unsigned seed = *id;
+  // XXX rand_r() is obsolete, but rand() is not thread-safe
+  usleep(rand_r(&seed) % MAXSLEEP);
   buffer_recv(&b, &d);
   if (! quiet)
   {

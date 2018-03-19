@@ -51,7 +51,10 @@ Program received signal SIGSEGV, Segmentation fault.
 Signal        Stop	Print	Pass to program	Description
 SIGSEGV       No	Yes	Yes		Segmentation fault
 Continuing.
-Program received signal SIGSEGV, Segmentation fault.
+Program received signal SIGBUS, Bus error.
+0x........ in test2 () at faultstatus.c:84
+84		mapping[0] = 'x';
+Continuing.
 Program received signal SIGBUS, Bus error.
 0x........ in test3 () at faultstatus.c:89
 89		mapping[FILESIZE+10];

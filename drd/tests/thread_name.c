@@ -26,7 +26,12 @@ static void* thread_func(void* argp)
            "thread_func instance %d", thread_num + 1);
   ANNOTATE_THREAD_NAME(thread_name);
 
+#if defined(__FreeBSD__)
+#  define THR_MUTEX_DESTROYED ((pthread_mutex_t)2)
+invalid_mutex = THR_MUTEX_DESTROYED;
+#else
   memset(&invalid_mutex, 0xff, sizeof(invalid_mutex));
+#endif
 
   pthread_barrier_wait(&s_barrier);
 

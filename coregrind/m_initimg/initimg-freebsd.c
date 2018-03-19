@@ -633,6 +633,10 @@ Addr setup_client_stack( void*  init_sp,
             auxv->u.a_val = info->entry;
             break;
 
+         case AT_OSRELDATE:
+            auxv->u.a_val = info->osrel;
+            break;
+
          default:
             /* stomp out anything we don't know about */
             VG_(debugLog)(2, "initimg",

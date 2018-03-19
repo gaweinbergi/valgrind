@@ -85,6 +85,10 @@ typedef
       // These are the extra args added by #! scripts
       HChar*  interp_name;  // OUT: the interpreter name
       HChar*  interp_args;  // OUT: the args for the interpreter
+
+#if defined(VGO_freebsd)
+      int32_t osrel;	// OUT: OS release
+#endif
    }
    ExeInfo;
 

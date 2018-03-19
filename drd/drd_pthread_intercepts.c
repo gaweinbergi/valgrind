@@ -59,6 +59,15 @@
 #include "drd_clientreq.h"
 #include "pub_tool_redir.h" /* VG_WRAP_FUNCTION_ZZ() */
 
+#if defined(VGO_freebsd)
+/*
+ * Locks are dynamically allocated on FreeBSD. Therefore we need to be
+ * at least somewhat aware of the lock structure, so we can exclude it
+ * after it is allocated.
+ */
+#include "pub_tool_vki.h"
+#endif
+
 #if defined(VGO_solaris)
 /*
  * Solaris usually provides pthread_* functions on top of Solaris threading
@@ -180,6 +189,13 @@ static int never_true;
    ret_ty VG_WRAP_FUNCTION_ZZ(VG_Z_LIBPTHREAD_SONAME,zf) argl_decl;     \
    ret_ty VG_WRAP_FUNCTION_ZZ(VG_Z_LIBPTHREAD_SONAME,zf) argl_decl      \
    { return implf argl; }
+#if defined(VGO_freebsd)
+/* On FreeBSD, semaphore functions are in libc */
+#define SEM_FUNC(ret_ty, zf, implf, argl_decl, argl)                    \
+   ret_ty VG_WRAP_FUNCTION_ZZ(VG_Z_LIBC_SONAME,zf) argl_decl;     \
+   ret_ty VG_WRAP_FUNCTION_ZZ(VG_Z_LIBC_SONAME,zf) argl_decl      \
+   { return implf argl; }
+#endif
 #endif
 
 /**
@@ -272,8 +288,14 @@ static void DRD_(sema_init)(DrdSema* sema)
 {
    DRD_IGNORE_VAR(*sema);
    pthread_mutex_init(&sema->mutex, NULL);
+#if defined(VGO_freebsd)
+   DRD_IGNORE_VAR(*sema->mutex);
+#endif
    DRD_(ignore_mutex_ordering)(&sema->mutex);
    pthread_cond_init(&sema->cond, NULL);
+#if defined(VGO_freebsd)
+   DRD_IGNORE_VAR(*sema->cond);
+#endif
    sema->counter = 0;
 }
 
@@ -1336,7 +1358,11 @@ int sem_init_intercept(sem_t *sem, int pshared, unsigned int value)
    return ret;
 }
 
+#if defined(VGO_freebsd)
+SEM_FUNC(int, semZuinit, sem_init_intercept,
+#else
 PTH_FUNCS(int, semZuinit, sem_init_intercept,
+#endif
           (sem_t *sem, int pshared, unsigned int value), (sem, pshared, value));
 
 #if defined(VGO_solaris)
@@ -1374,7 +1400,11 @@ int sem_destroy_intercept(sem_t *sem)
    return ret;
 }
 
+#if defined(VGO_freebsd)
+SEM_FUNC(int, semZudestroy, sem_destroy_intercept, (sem_t *sem), (sem));
+#else
 PTH_FUNCS(int, semZudestroy, sem_destroy_intercept, (sem_t *sem), (sem));
+#endif
 #if defined(VGO_solaris)
 PTH_FUNCS(int, semaZudestroy, sem_destroy_intercept, (sem_t *sem), (sem));
 #endif /* VGO_solaris */
@@ -1395,7 +1425,11 @@ sem_t* sem_open_intercept(const char *name, int oflag, mode_t mode,
    return ret;
 }
 
+#if defined(VGO_freebsd)
+SEM_FUNC(sem_t *, semZuopen, sem_open_intercept,
+#else
 PTH_FUNCS(sem_t *, semZuopen, sem_open_intercept,
+#endif
           (const char *name, int oflag, mode_t mode, unsigned int value),
           (name, oflag, mode, value));
 
@@ -1412,7 +1446,11 @@ static __always_inline int sem_close_intercept(sem_t *sem)
    return ret;
 }
 
+#if defined(VGO_freebsd)
+SEM_FUNC(int, semZuclose, sem_close_intercept, (sem_t *sem), (sem));
+#else
 PTH_FUNCS(int, semZuclose, sem_close_intercept, (sem_t *sem), (sem));
+#endif
 
 static __always_inline int sem_wait_intercept(sem_t *sem)
 {
@@ -1427,7 +1465,11 @@ static __always_inline int sem_wait_intercept(sem_t *sem)
    return ret;
 }
 
+#if defined(VGO_freebsd)
+SEM_FUNC(int, semZuwait, sem_wait_intercept, (sem_t *sem), (sem));
+#else
 PTH_FUNCS(int, semZuwait, sem_wait_intercept, (sem_t *sem), (sem));
+#endif
 #if defined(VGO_solaris)
 PTH_FUNCS(int, semaZuwait, sem_wait_intercept, (sem_t *sem), (sem));
 #endif /* VGO_solaris */
@@ -1445,7 +1487,11 @@ static __always_inline int sem_trywait_intercept(sem_t *sem)
    return ret;
 }
 
+#if defined(VGO_freebsd)
+SEM_FUNC(int, semZutrywait, sem_trywait_intercept, (sem_t *sem), (sem));
+#else
 PTH_FUNCS(int, semZutrywait, sem_trywait_intercept, (sem_t *sem), (sem));
+#endif
 #if defined(VGO_solaris)
 PTH_FUNCS(int, semaZutrywait, sem_trywait_intercept, (sem_t *sem), (sem));
 #endif /* VGO_solaris */
@@ -1464,7 +1510,11 @@ int sem_timedwait_intercept(sem_t *sem, const struct timespec *abs_timeout)
    return ret;
 }
 
+#if defined(VGO_freebsd)
+SEM_FUNC(int, semZutimedwait, sem_timedwait_intercept,
+#else
 PTH_FUNCS(int, semZutimedwait, sem_timedwait_intercept,
+#endif
           (sem_t *sem, const struct timespec *abs_timeout),
           (sem, abs_timeout));
 #if defined(VGO_solaris)
@@ -1489,7 +1539,11 @@ static __always_inline int sem_post_intercept(sem_t *sem)
    return ret;
 }
 
+#if defined(VGO_freebsd)
+SEM_FUNC(int, semZupost, sem_post_intercept, (sem_t *sem), (sem));
+#else
 PTH_FUNCS(int, semZupost, sem_post_intercept, (sem_t *sem), (sem));
+#endif
 #if defined(VGO_solaris)
 PTH_FUNCS(int, semaZupost, sem_post_intercept, (sem_t *sem), (sem));
 #endif /* VGO_solaris */

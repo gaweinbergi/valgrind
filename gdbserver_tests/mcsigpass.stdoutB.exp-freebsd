@@ -3,7 +3,7 @@ Program received signal SIGSEGV, Segmentation fault.
 0x........ in test1 () at faultstatus.c:79
 79		*BADADDR = 'x';
 Continuing.
-Program received signal SIGSEGV, Segmentation fault.
+Program received signal SIGBUS, Bus error.
 0x........ in test2 () at faultstatus.c:84
 84		mapping[0] = 'x';
 Continuing.

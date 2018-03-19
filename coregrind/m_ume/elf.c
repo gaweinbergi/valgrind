@@ -792,20 +792,19 @@ Int VG_(load_ELF)(Int fd, const HChar* name, /*MOD*/ExeInfo* info)
          }
          break;
          }
-#if 0
-      /* FIXME Need to determine how to get osrel into image loaded by kernel */
+
       case PT_NOTE: {
          Elf_Note *note = VG_(malloc)("ume.LE.2", ph->p_filesz);
          VG_(pread)(fd, note, ph->p_filesz, ph->p_offset);
          if (note->n_type == NT_FREEBSD_ABI_TAG) {
             uintptr_t p = (uintptr_t)(note + 1);
             p += VG_ROUNDUP(note->n_namesz, ph->p_align);
-            int32_t osrel = *(const int32_t *)(p);
+            info->osrel = *(const int32_t *)(p);
          }
 	 VG_(free)(note);
          break;
          }
-#endif
+
 #     if defined(PT_GNU_STACK) || defined(PT_SUNWSTACK)
 #     if defined(PT_GNU_STACK)
       /* Android's elf.h doesn't appear to have PT_GNU_STACK. */

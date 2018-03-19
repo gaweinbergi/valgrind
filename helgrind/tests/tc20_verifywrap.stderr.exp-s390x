@@ -227,7 +227,7 @@ FIXME: can't figure out how to verify wrap of sem_destroy
 Thread #x: Bug in libpthread: sem_wait succeeded on semaphore without prior sem_post
    at 0x........: sem_wait_WRK (hg_intercepts.c:...)
    by 0x........: sem_wait (hg_intercepts.c:...)
-   by 0x........: main (tc20_verifywrap.c:281)
+   by 0x........: main (tc20_verifywrap.c:292)
 
 
 FIXME: can't figure out how to verify wrap of sem_post

@@ -31,8 +31,8 @@ int main ( void )
   /* Do 'wait' on a bogus semaphore.  This should fail, but on glibc
      it succeeds. */
   memset(&s1, 0x55, sizeof(s1));
-  r= sem_wait(&s1); /* assert(r != 0); */
-#if defined(VGO_solaris)
+  r= sem_wait(&s1);
+#if defined(VGO_solaris) || defined(VGO_freebsd)
   assert(r != 0);
 #endif
 

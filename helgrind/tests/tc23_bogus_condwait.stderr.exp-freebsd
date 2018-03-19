@@ -12,6 +12,14 @@ Thread #x: pthread_cond_{timed}wait called with invalid mutex
 
 ----------------------------------------------------------------
 
+Thread #x's call to pthread_cond_wait failed
+   with error code 22 (EINVAL: Invalid argument)
+   at 0x........: pthread_cond_wait_WRK (hg_intercepts.c:...)
+   by 0x........: pthread_cond_wait (hg_intercepts.c:...)
+   by 0x........: main (tc23_bogus_condwait.c:76)
+
+----------------------------------------------------------------
+
 Thread #x: pthread_cond_{timed}wait called with un-held mutex
    at 0x........: pthread_cond_wait_WRK (hg_intercepts.c:...)
    by 0x........: pthread_cond_wait (hg_intercepts.c:...)
@@ -20,6 +28,14 @@ Thread #x: pthread_cond_{timed}wait called with un-held mutex
 ----------------------------------------------------------------
 
 Thread #x: pthread_cond_{timed}wait: cond is associated with a different mutex
+   at 0x........: pthread_cond_wait_WRK (hg_intercepts.c:...)
+   by 0x........: pthread_cond_wait (hg_intercepts.c:...)
+   by 0x........: main (tc23_bogus_condwait.c:82)
+
+----------------------------------------------------------------
+
+Thread #x's call to pthread_cond_wait failed
+   with error code 1 (EPERM: Operation not permitted)
    at 0x........: pthread_cond_wait_WRK (hg_intercepts.c:...)
    by 0x........: pthread_cond_wait (hg_intercepts.c:...)
    by 0x........: main (tc23_bogus_condwait.c:82)
@@ -40,6 +56,14 @@ Thread #x: pthread_cond_{timed}wait: cond is associated with a different mutex
 
 ----------------------------------------------------------------
 
+Thread #x's call to pthread_cond_wait failed
+   with error code 1 (EPERM: Operation not permitted)
+   at 0x........: pthread_cond_wait_WRK (hg_intercepts.c:...)
+   by 0x........: pthread_cond_wait (hg_intercepts.c:...)
+   by 0x........: main (tc23_bogus_condwait.c:85)
+
+----------------------------------------------------------------
+
 Thread #x: pthread_cond_{timed}wait called with mutex held by a different thread
    at 0x........: pthread_cond_wait_WRK (hg_intercepts.c:...)
    by 0x........: pthread_cond_wait (hg_intercepts.c:...)
@@ -48,6 +72,14 @@ Thread #x: pthread_cond_{timed}wait called with mutex held by a different thread
 ----------------------------------------------------------------
 
 Thread #x: pthread_cond_{timed}wait: cond is associated with a different mutex
+   at 0x........: pthread_cond_wait_WRK (hg_intercepts.c:...)
+   by 0x........: pthread_cond_wait (hg_intercepts.c:...)
+   by 0x........: main (tc23_bogus_condwait.c:88)
+
+----------------------------------------------------------------
+
+Thread #x's call to pthread_cond_wait failed
+   with error code 1 (EPERM: Operation not permitted)
    at 0x........: pthread_cond_wait_WRK (hg_intercepts.c:...)
    by 0x........: pthread_cond_wait (hg_intercepts.c:...)
    by 0x........: main (tc23_bogus_condwait.c:88)

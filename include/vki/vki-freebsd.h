@@ -47,6 +47,7 @@
 
 #include <sys/fcntl.h>
 #include <sys/param.h>
+#include <sys/queue.h>
 
 
 //----------------------------------------------------------------------
@@ -1814,7 +1815,11 @@ struct vki_umutex {
 	vki_lwpid_t	m_owner;
 	vki_uint32_t	m_flags;
 	vki_uint32_t	m_ceilings[2];
-	vki_uint32_t	m_spare[4];
+	vki_uintptr_t	m_rb_lnk;
+#ifndef __LP64__
+	__uint32_t		m_pad;
+#endif
+	vki_uint32_t	m_spare[2];
 };
 
 struct vki_ucond {
@@ -1835,6 +1840,11 @@ struct vki_usem {
 	vki_uint32_t	has_waiters;
 	vki_uint32_t	count;
 	vki_uint32_t	flags;
+};
+
+struct vki_usem2 {
+	volatile vki_uint32_t	count;	/* Waiters flag in high bit. */
+	vki_uint32_t		flags;
 };
 
 struct vki_umtx_time {
@@ -1862,12 +1872,41 @@ struct vki_umtx_time {
 #define	VKI_UMTX_OP_WAKE_PRIVATE	16
 #define	VKI_UMTX_OP_MUTEX_WAIT		17
 #define	VKI_UMTX_OP_MUTEX_WAKE		18 /* deprecated */
-#define	VKI_UMTX_OP_SEM_WAIT		19
-#define	VKI_UMTX_OP_SEM_WAKE		20
+#define	VKI_UMTX_OP_SEM_WAIT		19 /* deprecated */
+#define	VKI_UMTX_OP_SEM_WAKE		20 /* deprecated */
 #define	VKI_UMTX_OP_NWAKE_PRIVATE	21
 #define	VKI_UMTX_OP_MUTEX_WAKE2		22
-#define	VKI_UMTX_OP_MAX			23
+#define	VKI_UMTX_OP_SEM2_WAIT		23
+#define	VKI_UMTX_OP_SEM2_WAKE		24
+#define	VKI_UMTX_OP_SHM			25
+#define	VKI_UMTX_OP_ROBUST_LISTS	26
+#define	VKI_UMTX_OP_MAX			26
 
+//----------------------------------------------------------------------
+// From thr_private.h
+//----------------------------------------------------------------------
+
+struct pthread_mutex {	// XXX Really should be prefixed with vki_
+	struct vki_umutex		m_lock;
+	int				m_flags;
+	int				m_count;
+	int				m_spinloops;
+	int				m_yieldloops;
+	int				m_ps;	/* pshared init stage */
+	/*
+	 * Link for all mutexes a thread currently owns, of the same
+	 * prio type.
+	 */
+	TAILQ_ENTRY(pthread_mutex)	m_qe;
+	/* Link for all private mutexes a thread currently owns. */
+	TAILQ_ENTRY(pthread_mutex)	m_pqe;
+	struct pthread_mutex		*m_rb_prev;
+};
+
+struct pthread_cond {
+	__uint32_t		__has_user_waiters;
+	struct vki_ucond	kcond;
+};
 
 //----------------------------------------------------------------------
 // From sys/acl.h

@@ -98,6 +98,10 @@
    ret_ty I_WRAP_SONAME_FNNAME_ZZ(VG_Z_LIBPTHREAD_SONAME,f)(args); \
    ret_ty I_WRAP_SONAME_FNNAME_ZZ(VG_Z_LIBPTHREAD_SONAME,f)(args)
 #define CREQ_PTHREAD_T pthread_t
+/* On FreeBSD, semaphore functions are in libc */
+#define SEM_FUNC(ret_ty, f, args...) \
+   ret_ty I_WRAP_SONAME_FNNAME_ZZ(VG_Z_LIBC_SONAME,f)(args); \
+   ret_ty I_WRAP_SONAME_FNNAME_ZZ(VG_Z_LIBC_SONAME,f)(args)
 #define SEM_ERROR errno
 #endif /* VGO_solaris */
 
@@ -1047,7 +1051,7 @@ static int mutex_timedlock_WRK(pthread_mutex_t *mutex,
    OrigFn fn;
    VALGRIND_GET_ORIG_FN(fn);
    if (TRACE_PTH_FNS) {
-      VG_(printf_stderr)("<< pthread_mxtimedlock %p %p", mutex, timeout); 
+      VG_(printf_stderr)("<< pthread_mxtimedlock %p %p", mutex, timeout);
    }
 
    DO_CREQ_v_WW(_VG_USERREQ__HG_PTHREAD_MUTEX_LOCK_PRE,
@@ -1287,7 +1291,7 @@ static int pthread_cond_timedwait_WRK(pthread_cond_t* cond,
    VALGRIND_GET_ORIG_FN(fn);
 
    if (TRACE_PTH_FNS) {
-      VG_(printf_stderr)("<< pthread_cond_timedwait %p %p %p", 
+      VG_(printf_stderr)("<< pthread_cond_timedwait %p %p %p",
                       cond, mutex, abstime);
    }
 
@@ -2680,7 +2684,7 @@ static int pthread_rwlock_unlock_WRK(pthread_rwlock_t* rwlock)
 #include <semaphore.h>
 #include <fcntl.h>       /* O_CREAT */
 
-#define TRACE_SEM_FNS 1
+#define TRACE_SEM_FNS 0
 
 /* Handled: 
      int sem_init(sem_t *sem, int pshared, unsigned value);
@@ -2703,7 +2707,7 @@ static int pthread_rwlock_unlock_WRK(pthread_rwlock_t* rwlock)
 // glibc:   sem_init@@GLIBC_2.1
 // glibc:   sem_init@GLIBC_2.0
 // darwin:  sem_init
-// FreeBSD: sem_init@@FBSD_1.2
+// FreeBSD: sem_init
 // Solaris: sema_init (sem_init is built on top of sem_init)
 //
 #if !defined(VGO_solaris)
@@ -2733,13 +2737,18 @@ static int sem_init_WRK(sem_t* sem, int pshared, unsigned long value)
 
    return ret;
 }
-#if defined(VGO_linux) || defined(VGO_freebsd)
+#if defined(VGO_linux)
    PTH_FUNC(int, semZuinitZAZa, // sem_init@*
                  sem_t* sem, int pshared, unsigned long value) {
       return sem_init_WRK(sem, pshared, value);
    }
 #elif defined(VGO_darwin)
    PTH_FUNC(int, semZuinit, // sem_init
+                 sem_t* sem, int pshared, unsigned long value) {
+      return sem_init_WRK(sem, pshared, value);
+   }
+#elif defined(VGO_freebsd)
+   SEM_FUNC(int, semZuinit, // sem_init
                  sem_t* sem, int pshared, unsigned long value) {
       return sem_init_WRK(sem, pshared, value);
    }
@@ -2818,7 +2827,7 @@ static int sem_destroy_WRK(sem_t* sem)
       return sem_destroy_WRK(sem);
    }
 #elif defined(VGO_freebsd)
-   PTH_FUNC(int, semZudestroy,  // sem_destroy
+   SEM_FUNC(int, semZudestroy,  // sem_destroy
                  sem_t* sem) {
       return sem_destroy_WRK(sem);
    }
@@ -2884,7 +2893,7 @@ static int sem_wait_WRK(sem_t* sem)
       return sem_wait_WRK(sem);
    }
 #elif defined(VGO_freebsd)
-   PTH_FUNC(int, semZuwait, sem_t* sem) { /* sem_wait */
+   SEM_FUNC(int, semZuwait, sem_t* sem) { /* sem_wait */
       return sem_wait_WRK(sem);
    }
 #elif defined(VGO_darwin)
@@ -2948,7 +2957,7 @@ static int sem_post_WRK(sem_t* sem)
       return sem_post_WRK(sem);
    }
 #elif defined(VGO_freebsd)
-   PTH_FUNC(int, semZupost, sem_t* sem) { /* sem_post */
+   SEM_FUNC(int, semZupost, sem_t* sem) { /* sem_post */
       return sem_post_WRK(sem);
    }
 #elif defined(VGO_darwin)
@@ -2970,9 +2979,15 @@ static int sem_post_WRK(sem_t* sem)
 // FreeBSD: sem_open
 // Solaris: sem_open
 //
+#if defined(VGO_freebsd)
+SEM_FUNC(sem_t*, semZuopen,
+                 const char* name, long oflag,
+                 long mode, unsigned long value)
+#else
 PTH_FUNC(sem_t*, semZuopen,
                  const char* name, long oflag,
                  long mode, unsigned long value)
+#endif
 {
    /* A copy of sem_init_WRK (more or less).  Is this correct? */
    OrigFn fn;
@@ -3007,7 +3022,11 @@ PTH_FUNC(sem_t*, semZuopen,
 // darwin:  sem_close
 // FreeBSD: sem_close
 // Solaris: sem_close
+#if defined(VGO_freebsd)
+SEM_FUNC(int, sem_close, sem_t* sem)
+#else
 PTH_FUNC(int, sem_close, sem_t* sem)
+#endif
 {
    OrigFn fn;
    int    ret;

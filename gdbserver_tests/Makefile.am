@@ -74,6 +74,7 @@ EXTRA_DIST = \
 	mcleak.vgtest \
 	mcmain_pic.stderrB.exp \
 	mcmain_pic.stderr.exp \
+	mcmain_pic.stderr.exp-freebsd \
 	mcmain_pic.stderr.exp-solaris \
 	mcmain_pic.stdinB.gdb \
 	mcmain_pic.stdoutB.exp \
@@ -88,11 +89,13 @@ EXTRA_DIST = \
 	mcsignopass.stderr.exp \
 	mcsignopass.stdinB.gdb \
 	mcsignopass.stdoutB.exp \
+	mcsignopass.stdoutB.exp-freebsd \
 	mcsignopass.vgtest \
 	mcsigpass.stderrB.exp \
 	mcsigpass.stderr.exp \
 	mcsigpass.stdinB.gdb \
 	mcsigpass.stdoutB.exp \
+	mcsigpass.stdoutB.exp-freebsd \
 	mcsigpass.vgtest \
 	mcvabits.stderrB.exp \
 	mcvabits.stderr.exp \

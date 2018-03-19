@@ -94,6 +94,7 @@ EXTRA_DIST = \
 		tc17_sembar.stderr.exp \
 	tc18_semabuse.vgtest tc18_semabuse.stdout.exp \
 		tc18_semabuse.stderr.exp \
+		tc18_semabuse.stderr.exp-freebsd \
 		tc18_semabuse.stderr.exp-linux-mips32 \
 		tc18_semabuse.stderr.exp-linux-mips32-b \
 		tc18_semabuse.stderr.exp-solaris \
@@ -115,6 +116,7 @@ EXTRA_DIST = \
 		tc22_exit_w_lock.stderr.exp-solaris \
 	tc23_bogus_condwait.vgtest tc23_bogus_condwait.stdout.exp \
 		tc23_bogus_condwait.stderr.exp \
+		tc23_bogus_condwait.stderr.exp-freebsd \
 		tc23_bogus_condwait.stderr.exp-mips32 \
 	tc24_nonzero_sem.vgtest tc24_nonzero_sem.stdout.exp \
 		tc24_nonzero_sem.stderr.exp \

@@ -459,7 +459,7 @@ static UInt local_sys_getpid ( void )
 {
    UInt __res;
    __asm__ volatile (
-      "movl $20, %%eax\n"  /* set %eax = __NR_getpid */
+      "movl $"VG_STRINGIFY(__NR_getpid)", %%eax\n"  /* set %eax = __NR_getpid */
       "int  $0x80\n"       /* getpid() */
       "movl %%eax, %0\n"   /* set __res = eax */
       : "=mr" (__res)
@@ -478,6 +478,7 @@ static UInt local_sys_write_stderr ( HChar* buf, Int n )
    __asm__ volatile (
       "subq  $256, %%rsp\n"     /* don't trash the stack redzone */
       "pushq %%r15\n"           /* r15 is callee-save */
+      "pushq %%r8\n"            /* XXX r8 sometimes trashed??? */
       "movq  %0, %%r15\n"       /* r15 = &block */
       "pushq %%r15\n"           /* save &block */
       "movq  $"VG_STRINGIFY(__NR_write)", %%rax\n" /* rax = __NR_write */
@@ -487,6 +488,7 @@ static UInt local_sys_write_stderr ( HChar* buf, Int n )
       "syscall\n"               /* write(stderr, buf, n) */
       "popq  %%r15\n"           /* reestablish &block */
       "movq  %%rax, 0(%%r15)\n" /* block[0] = result */
+      "popq  %%r8\n"            /* XXX restore r8 */
       "popq  %%r15\n"           /* restore r15 */
       "addq  $256, %%rsp\n"     /* restore stack ptr */
       : /*wr*/
@@ -502,7 +504,7 @@ static UInt local_sys_getpid ( void )
 {
    UInt __res;
    __asm__ volatile (
-      "movq $20, %%rax\n"  /* set %rax = __NR_getpid */
+      "movq $"VG_STRINGIFY(__NR_getpid)", %%rax\n"  /* set %rax = __NR_getpid */
       "syscall\n"          /* getpid() */
       "movl %%eax, %0\n"   /* set __res = %eax */
       : "=mr" (__res)
@@ -1303,7 +1305,7 @@ static void add_to_buf ( HChar c, void* p )
    printf_buf* buf = (printf_buf*)p;
 
    if (buf->n >= 100-10 /*paranoia*/ ) {
-      emit( buf->buf, local_strlen(buf->buf) );
+      emit( buf->buf, buf->n );
       buf->n = 0;
       buf->buf[buf->n] = 0;      
    }

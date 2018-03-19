@@ -3,11 +3,17 @@
  * http://bugs.kde.org/show_bug.cgi?id=323905.
  */
 
-#include <climits>    /* PTHREAD_STACK_MIN */
 #include <cstdio>     /* fprintf() */
 #include <fcntl.h>    /* O_RDONLY */
 #include <pthread.h>
 #include <unistd.h>   /* close() */
+
+#if defined(VGO_freebsd)
+#define MY_STACK_MIN 16384	// XXX
+#else
+#include <climits>
+#define MY_STACK_MIN PTHREAD_STACK_MIN
+#endif
 
 /* Happens with two threads also */
 #define THREAD_COUNT 256
@@ -32,7 +38,7 @@ int main()
   pthread_t threads[THREAD_COUNT];
 
   pthread_attr_init(&attr);
-  pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN);
+  pthread_attr_setstacksize(&attr, MY_STACK_MIN);
   for (i = 0; i < THREAD_COUNT; ++i) {
     r = pthread_create(&threads[i], &attr, thread, 0);
     if (r != 0) {

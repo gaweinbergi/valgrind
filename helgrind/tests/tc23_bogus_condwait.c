@@ -18,19 +18,19 @@ void* rescue_me ( void* uu )
 {
   /* wait for, and unblock, the first wait */
   sleep(1);
-  pthread_cond_signal( &cv );
+  assert(pthread_cond_signal(&cv) == 0);
 
   /* wait for, and unblock, the second wait */
   sleep(1);
-  pthread_cond_signal( &cv );
+  assert(pthread_cond_signal(&cv) == 0);
 
   /* wait for, and unblock, the third wait */
   sleep(1);
-  pthread_cond_signal( &cv );
+  assert(pthread_cond_signal(&cv) == 0);
 
   /* wait for, and unblock, the fourth wait */
   sleep(1);
-  pthread_cond_signal( &cv );
+  assert(pthread_cond_signal(&cv) == 0);
 
   my_sem_wait( quit_now );
   return NULL;
@@ -57,7 +57,7 @@ int main ( void )
   r= pthread_cond_init(&cv, NULL); assert(!r);
   r= pthread_rwlock_init(&rwl, NULL); assert(!r);
 
-  quit_now = my_sem_init( "quit_now", 0,0 ); assert(quit_now);
+  quit_now = my_sem_init( "quit_now", 0, 0 ); assert(quit_now);
 
   r= pthread_create( &grabber, NULL, grab_the_lock, NULL ); assert(!r);
   sleep(1); /* let the grabber get there first */
@@ -68,14 +68,18 @@ int main ( void )
      trouble */
 
   /* mx is bogus */
-  /* XXX FreeBSD mutexes are dynamically allocated. Passing a bogus address */
-  /*     is especially bad, so skip this particular test. */
-#if !defined(VGO_freebsd)
+  /* FreeBSD mutexes are dynamically allocated. Passing a bogus address */
+  /* can result in hangs, so mark mutex as destroyed instead. */
+#if defined(VGO_freebsd)
+#define THR_MUTEX_DESTROYED ((pthread_mutex_t)2)
+  pthread_mutex_t destroyed_mx = THR_MUTEX_DESTROYED;
+  r= pthread_cond_wait(&cv, &destroyed_mx);
+#else
   r= pthread_cond_wait(&cv, (pthread_mutex_t*)(4 + (char*)&mx[0]) );
 #endif
 
   /* mx is not locked */
-  r= pthread_cond_wait(&cv, &mx[3]);
+  r= pthread_cond_wait(&cv, &mx[0]);
 
   /* wrong flavour of lock */
   r= pthread_cond_wait(&cv, (pthread_mutex_t*)&rwl );

@@ -21,4 +21,7 @@ perl -p -e '/^[1-9][0-9]*	\.\.\/sysdeps\/powerpc\/powerpc32\/dl-start\.S: No suc
 sed -e '/^1	rtld.c: No such file or directory\./d' |
 
 # and filter out any remaining empty lines
-sed -e '/^$/d'
+sed -e '/^$/d' |
+
+# remove bogus newline between "Test4: " and "PASS"
+perl -p -e 'if ($_ =~ /^Test 4: $/) {chomp;}'
