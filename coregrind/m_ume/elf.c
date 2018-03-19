@@ -793,6 +793,7 @@ Int VG_(load_ELF)(Int fd, const HChar* name, /*MOD*/ExeInfo* info)
          break;
          }
 
+#if defined(VGO_freebsd)
       case PT_NOTE: {
          Elf_Note *note = VG_(malloc)("ume.LE.2", ph->p_filesz);
          VG_(pread)(fd, note, ph->p_filesz, ph->p_offset);
@@ -804,6 +805,7 @@ Int VG_(load_ELF)(Int fd, const HChar* name, /*MOD*/ExeInfo* info)
 	 VG_(free)(note);
          break;
          }
+#endif
 
 #     if defined(PT_GNU_STACK) || defined(PT_SUNWSTACK)
 #     if defined(PT_GNU_STACK)
