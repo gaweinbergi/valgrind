@@ -437,7 +437,7 @@ static UInt local_sys_getpid ( void )
 }
 
 #elif defined(VGP_x86_freebsd)
-static UInt local_sys_write_stderr ( HChar* buf, Int n )
+static UInt local_sys_write_stderr ( const HChar* buf, Int n )
 {
    Int result;
 
@@ -470,7 +470,7 @@ static UInt local_sys_getpid ( void )
 
 #elif defined(VGP_amd64_freebsd)
 __attribute__((noinline))
-static UInt local_sys_write_stderr ( HChar* buf, Int n )
+static UInt local_sys_write_stderr ( const HChar* buf, Int n )
 {
    volatile Long block[2];
    block[0] = (Long)buf;
@@ -478,7 +478,6 @@ static UInt local_sys_write_stderr ( HChar* buf, Int n )
    __asm__ volatile (
       "subq  $256, %%rsp\n"     /* don't trash the stack redzone */
       "pushq %%r15\n"           /* r15 is callee-save */
-      "pushq %%r8\n"            /* XXX r8 sometimes trashed??? */
       "movq  %0, %%r15\n"       /* r15 = &block */
       "pushq %%r15\n"           /* save &block */
       "movq  $"VG_STRINGIFY(__NR_write)", %%rax\n" /* rax = __NR_write */
@@ -488,12 +487,12 @@ static UInt local_sys_write_stderr ( HChar* buf, Int n )
       "syscall\n"               /* write(stderr, buf, n) */
       "popq  %%r15\n"           /* reestablish &block */
       "movq  %%rax, 0(%%r15)\n" /* block[0] = result */
-      "popq  %%r8\n"            /* XXX restore r8 */
       "popq  %%r15\n"           /* restore r15 */
       "addq  $256, %%rsp\n"     /* restore stack ptr */
       : /*wr*/
       : /*rd*/    "g" (block)
-      : /*trash*/ "rax", "rdi", "rsi", "rdx", "memory", "cc"
+      : /* Parameter registers are not preserved */ "r8", "r9", "r10", "r11",
+        /* trash */ "rax", "rdi", "rsi", "rdx", "memory", "cc"
    );
    if (block[0] < 0) 
       block[0] = -1;

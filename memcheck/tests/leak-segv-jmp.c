@@ -267,7 +267,7 @@ extern UWord do_syscall_WRK (
           UWord a6,            /* 8(%rsp) */
           UWord a7,            /* 16(%rsp) */
           UWord a8,            /* 24(%rsp) */
-          UWord *flags,        /* 32(%rsp) XXX UInt */
+          UInt *err,           /* 32(%rsp) */
           UWord *rv2           /* 40(%rsp) */
        );
 asm(
@@ -333,16 +333,24 @@ static void non_simd_mprotect (long tid, void* addr, long len)
                                     &err);
    if (err)
       mprotect_result = -1;
+#elif defined(VGO_freebsd)
+   UInt err = 0;
+#if defined(VGP_x86_freebsd)
+   mprotect_result = do_syscall_WRK(__NR_mprotect,
+                                    (UWord) addr, len, PROT_NONE,
+                                    0, 0, 0, 0, 0, &err);
+#elif defined(VGP_amd64_freebsd)
+   UWord val2 = 0;
+   mprotect_result = do_syscall_WRK(__NR_mprotect,
+                                    (UWord) addr, len, PROT_NONE,
+                                    0, 0, 0, 0, 0, &err, &val2);
+#endif
+   if (err)
+      mprotect_result = -1;
 #else
    mprotect_result = do_syscall_WRK(__NR_mprotect,
                                     (UWord) addr, len, PROT_NONE,
-                                    0, 0, 0
-#if defined(VGP_x86_freebsd)
-                                    , 0, 0, 0
-#elif defined(VGP_amd64_freebsd)
-                                    , 0, 0, 0, 0
-#endif
-                                   );
+                                    0, 0, 0);
 #endif
 }
 
