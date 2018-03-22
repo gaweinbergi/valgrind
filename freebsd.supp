@@ -86,6 +86,20 @@
    fun:vgDrd_sema_destroy
    ...
 }
+{
+   FreeBSD-DRD-libgcc-_Unwind_ForcedUnwind
+   drd:ConflictingAccess
+   ...
+   fun:_Unwind_ForcedUnwind
+}
+{
+   FreeBSD-DRD-libgcc-dl_iterate_phdr
+   drd:ConflictingAccess
+   ...
+   fun:dl_iterate_phdr
+   ...
+}
+
 
 ##----------------------------------------------------------------------##
 # Helgrind
@@ -113,6 +127,15 @@
    fun:_pthread_exit_mask
    fun:pthread_exit
    obj:/lib/libthr.so.3
+}
+{
+   FreeBSD-Helgrind-pthread_exit-4
+   Helgrind:Race
+   ...
+   fun:_Unwind_Find_FDE
+   ...
+   fun:pthread_exit
+   ...
 }
 {
    FreeBSD-Helgrind-pthread_join

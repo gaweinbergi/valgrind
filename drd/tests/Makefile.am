@@ -395,6 +395,7 @@ check_PROGRAMS =      \
   sigalrm             \
   threaded-fork       \
   trylock             \
+  tsan_unittest       \
   unit_bitmap         \
   unit_vc
 
@@ -414,10 +415,6 @@ endif
 if HAVE_BUILTIN_ATOMIC_CXX
 check_PROGRAMS +=        \
   annotate_smart_pointer
-endif
-
-if !VGCONF_OS_IS_FREEBSD
-check_PROGRAMS += tsan_unittest
 endif
 
 # clang 3.3 will generate errors about libstdc++ headers from 

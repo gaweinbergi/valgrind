@@ -589,6 +589,7 @@ Addr setup_client_stack( void*  init_sp,
    /* --- auxv --- */
    auxv = (struct auxv *)ptr;
    *client_auxv = (UInt *)auxv;
+   VG_(client_auxv) = (UWord *)*client_auxv;
 
    for (; orig_auxv->a_type != AT_NULL; auxv++, orig_auxv++) {
 

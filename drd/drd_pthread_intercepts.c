@@ -289,12 +289,12 @@ static void DRD_(sema_init)(DrdSema* sema)
    DRD_IGNORE_VAR(*sema);
    pthread_mutex_init(&sema->mutex, NULL);
 #if defined(VGO_freebsd)
-   DRD_IGNORE_VAR(*sema->mutex);
+   DRD_IGNORE_VAR(sema->mutex);
 #endif
    DRD_(ignore_mutex_ordering)(&sema->mutex);
    pthread_cond_init(&sema->cond, NULL);
 #if defined(VGO_freebsd)
-   DRD_IGNORE_VAR(*sema->cond);
+   DRD_IGNORE_VAR(sema->cond);
 #endif
    sema->counter = 0;
 }

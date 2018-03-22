@@ -3571,44 +3571,14 @@ POST(sys_fcntl)
 
 PRE(sys_ioctl)
 {
-   UInt dir  = _VKI_IOC_DIR(ARG2);
-   UInt size = _VKI_IOC_SIZE(ARG2);
    *flags |= SfMayBlock;
    PRINT("sys_ioctl ( %ld, 0x%lx, %#lx )",ARG1,ARG2,ARG3);
    PRE_REG_READ3(long, "ioctl",
                  unsigned int, fd, unsigned int, request, unsigned long, arg);
 
 /* On FreeBSD, ALL ioctl's are IOR/IOW encoded.  Just use the default decoder */
-   if (SimHintiS(SimHint_lax_ioctls, VG_(clo_sim_hints))) {
-      /* 
-      * Be very lax about ioctl handling; the only
-      * assumption is that the size is correct. Doesn't
-      * require the full buffer to be initialized when
-      * writing.  Without this, using some device
-      * drivers with a large number of strange ioctl
-      * commands becomes very tiresome.
-      */
-   } else if (/* size == 0 || */ dir == _VKI_IOC_NONE) {
-	 static Int moans = 3;
-	 if (moans > 0 && !VG_(clo_xml)) {
-	    moans--;
-	    VG_(message)(Vg_UserMsg, 
-			 "Warning: noted but unhandled ioctl 0x%lx"
-			 " with no size/direction hints\n",
-			 ARG2); 
-	    VG_(message)(Vg_UserMsg, 
-			 "   This could cause spurious value errors"
-			 " to appear.\n");
-	    VG_(message)(Vg_UserMsg, 
-			 "   See README_MISSING_SYSCALL_OR_IOCTL for "
-			 "guidance on writing a proper wrapper.\n" );
-	 }
-   } else {
-	 if ((dir & _VKI_IOC_WRITE) && size > 0)
-	    PRE_MEM_READ( "ioctl(generic)", ARG3, size);
-	 if ((dir & _VKI_IOC_READ) && size > 0)
-	    PRE_MEM_WRITE( "ioctl(generic)", ARG3, size);
-   }
+
+   ML_(PRE_unknown_ioctl)(tid, ARG2, ARG3);
 }
 
 POST(sys_ioctl)

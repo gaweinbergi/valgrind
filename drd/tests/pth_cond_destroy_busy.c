@@ -63,10 +63,8 @@ int main(int argc, char** argv)
   pthread_mutex_unlock(&s_mutex);
 
   // If the pthread_cond_destroy() succeeded, the thread will never exit
-  // pthread_cond_wait(), so cancel it.
-  if (ret == 0)
-    pthread_cancel(threadid);
-  else
+  // pthread_cond_wait(), so don't try to join.
+  if (ret != 0)
     pthread_join(threadid, 0);
 
   ret = pthread_cond_destroy(&s_cond);
