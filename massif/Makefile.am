@@ -21,6 +21,10 @@ endif
 
 MASSIF_SOURCES_COMMON = ms_main.c
 
+if VGCONF_OS_IS_FREEBSD
+MASSIF_SOURCES_COMMON += ../freebsd/version_note.c
+endif
+
 massif_@VGCONF_ARCH_PRI@_@VGCONF_OS@_SOURCES      = \
 	$(MASSIF_SOURCES_COMMON)
 massif_@VGCONF_ARCH_PRI@_@VGCONF_OS@_CPPFLAGS     = \

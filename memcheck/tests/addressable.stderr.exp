@@ -48,6 +48,7 @@ For counts of detected and suppressed errors, rerun with: -v
 ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
 
 Process terminating with default action of signal N (SIGSEGV or SIGBUS)
+ Bad memory (SIGSEGV or SIGBUS) at address 0x........
    at 0x........: test4 (addressable.c:75)
    by 0x........: main (addressable.c:159)
 

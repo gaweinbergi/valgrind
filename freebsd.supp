@@ -80,6 +80,7 @@
 {
    FreeBSD-vgDrd_sema_destroy
    drd:ConflictingAccess
+   ...
    obj:/libexec/ld-elf.so.1
    ...
    obj:/libexec/ld-elf.so.1

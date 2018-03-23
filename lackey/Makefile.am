@@ -13,6 +13,10 @@ endif
 
 LACKEY_SOURCES_COMMON = lk_main.c
 
+if VGCONF_OS_IS_FREEBSD
+LACKEY_SOURCES_COMMON += ../freebsd/version_note.c
+endif
+
 lackey_@VGCONF_ARCH_PRI@_@VGCONF_OS@_SOURCES      = \
 	$(LACKEY_SOURCES_COMMON)
 lackey_@VGCONF_ARCH_PRI@_@VGCONF_OS@_CPPFLAGS     = \

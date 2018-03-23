@@ -26,6 +26,10 @@ EXP_PTRCHECK_SOURCES_COMMON = \
 	pc_main.c \
 	sg_main.c
 
+if VGCONF_OS_IS_FREEBSD
+EXP_PTRCHECK_SOURCES_COMMON += ../freebsd/version_note.c
+endif
+
 exp_sgcheck_@VGCONF_ARCH_PRI@_@VGCONF_OS@_SOURCES      = \
 	$(EXP_PTRCHECK_SOURCES_COMMON)
 exp_sgcheck_@VGCONF_ARCH_PRI@_@VGCONF_OS@_CPPFLAGS     = \

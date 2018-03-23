@@ -13,6 +13,10 @@ endif
 
 NONE_SOURCES_COMMON = nl_main.c
 
+if VGCONF_OS_IS_FREEBSD
+NONE_SOURCES_COMMON += ../freebsd/version_note.c
+endif
+
 none_@VGCONF_ARCH_PRI@_@VGCONF_OS@_SOURCES      = \
 	$(NONE_SOURCES_COMMON)
 none_@VGCONF_ARCH_PRI@_@VGCONF_OS@_CPPFLAGS     = \

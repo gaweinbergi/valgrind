@@ -13,6 +13,10 @@ endif
 
 BBV_SOURCES_COMMON = bbv_main.c
 
+if VGCONF_OS_IS_FREEBSD
+BBV_SOURCES_COMMON += ../freebsd/version_note.c
+endif
+
 exp_bbv_@VGCONF_ARCH_PRI@_@VGCONF_OS@_SOURCES      = \
 	$(BBV_SOURCES_COMMON)
 exp_bbv_@VGCONF_ARCH_PRI@_@VGCONF_OS@_CPPFLAGS     = \

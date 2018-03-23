@@ -49,6 +49,10 @@ CACHEGRIND_SOURCES_COMMON = \
 	cg_main.c \
 	cg_arch.c
 
+if VGCONF_OS_IS_FREEBSD
+CACHEGRIND_SOURCES_COMMON += ../freebsd/version_note.c
+endif
+
 cachegrind_@VGCONF_ARCH_PRI@_@VGCONF_OS@_SOURCES      = \
 	$(CACHEGRIND_SOURCES_COMMON)
 cachegrind_@VGCONF_ARCH_PRI@_@VGCONF_OS@_CPPFLAGS     = \

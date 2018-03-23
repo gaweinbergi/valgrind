@@ -128,13 +128,10 @@ int main()
 		struct test tests[] = {
 #define T(n, sig, code, addr) { test##n, 0, sig, 0, code, NULL, addr }
 			T(1, SIGSEGV, SEGV_MAPERR,	BADADDR),
-#if defined(VGO_freebsd)
-// FIXME: Workaround until we can get Valgrind to properly load
-//        the PT_NOTE section of the client executable.
-			T(2, SIGBUS, BUS_PAGE_FAULT,	mapping),
-			T(3, SIGBUS, BUS_PAGE_FAULT,	&mapping[FILESIZE+10]),
-#else
 			T(2, SIGSEGV, SEGV_ACCERR,	mapping),
+#if defined(VGO_freebsd)
+			T(3, SIGSEGV, BUS_ERROR_SI_CODE, &mapping[FILESIZE+10]),
+#else
 			T(3, SIGBUS,  BUS_ERROR_SI_CODE, &mapping[FILESIZE+10]),
 #endif
 			T(4, SIGFPE,  DIVISION_BY_ZERO_SI_CODE, 0),

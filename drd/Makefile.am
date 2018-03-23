@@ -69,6 +69,10 @@ DRD_SOURCES_COMMON =    \
   drd_semaphore.c       \
   drd_suppression.c
 
+if VGCONF_OS_IS_FREEBSD
+DRD_SOURCES_COMMON += ../freebsd/version_note.c
+endif
+
 drd_@VGCONF_ARCH_PRI@_@VGCONF_OS@_SOURCES      = \
 	$(DRD_SOURCES_COMMON)
 drd_@VGCONF_ARCH_PRI@_@VGCONF_OS@_CPPFLAGS     = \

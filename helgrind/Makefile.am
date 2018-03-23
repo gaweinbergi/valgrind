@@ -37,6 +37,10 @@ HELGRIND_SOURCES_COMMON = \
 	hg_wordset.c \
 	libhb_core.c
 
+if VGCONF_OS_IS_FREEBSD
+HELGRIND_SOURCES_COMMON += ../freebsd/version_note.c
+endif
+
 helgrind_@VGCONF_ARCH_PRI@_@VGCONF_OS@_SOURCES      = \
 	$(HELGRIND_SOURCES_COMMON)
 helgrind_@VGCONF_ARCH_PRI@_@VGCONF_OS@_CPPFLAGS     = \

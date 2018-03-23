@@ -21,6 +21,10 @@ endif
 
 EXP_DHAT_SOURCES_COMMON = dh_main.c
 
+if VGCONF_OS_IS_FREEBSD
+EXP_DHAT_SOURCES_COMMON += ../freebsd/version_note.c
+endif
+
 exp_dhat_@VGCONF_ARCH_PRI@_@VGCONF_OS@_SOURCES      = \
 	$(EXP_DHAT_SOURCES_COMMON)
 exp_dhat_@VGCONF_ARCH_PRI@_@VGCONF_OS@_CPPFLAGS     = \

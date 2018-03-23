@@ -29,6 +29,10 @@ MEMCHECK_SOURCES_COMMON = \
 	mc_machine.c \
 	mc_errors.c
 
+if VGCONF_OS_IS_FREEBSD
+MEMCHECK_SOURCES_COMMON += ../freebsd/version_note.c
+endif
+
 memcheck_@VGCONF_ARCH_PRI@_@VGCONF_OS@_SOURCES      = \
 	$(MEMCHECK_SOURCES_COMMON)
 memcheck_@VGCONF_ARCH_PRI@_@VGCONF_OS@_CPPFLAGS     = \

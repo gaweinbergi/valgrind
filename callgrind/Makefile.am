@@ -46,6 +46,10 @@ CALLGRIND_SOURCES_COMMON = \
 	sim.c \
 	threads.c
 
+if VGCONF_OS_IS_FREEBSD
+CALLGRIND_SOURCES_COMMON += ../freebsd/version_note.c
+endif
+
 # We sneakily include "cg_branchpred.c" and "cg_arch.c" from cachegrind
 CALLGRIND_CFLAGS_COMMON = -I$(top_srcdir)/cachegrind
 

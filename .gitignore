@@ -577,6 +577,10 @@ vgcore.*
 /exp-sgcheck/tests/xor
 /exp-sgcheck/tests/zero
 
+# /freebsd/
+/freebsd/.deps
+/freebsd/.dirstamp
+
 # /gdbserver_tests/
 /gdbserver_tests/*.dSYM
 /gdbserver_tests/*.diff*

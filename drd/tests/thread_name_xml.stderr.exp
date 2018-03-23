@@ -40,6 +40,14 @@ thread_func instance 1
     <frame>
       <ip>0x........</ip>
       <obj>...</obj>
+      <fn>pthread_mutex_unlock_intercept</fn>
+      <dir>...</dir>
+      <file>drd_pthread_intercepts.c</file>
+      <line>...</line>
+    </frame>
+    <frame>
+      <ip>0x........</ip>
+      <obj>...</obj>
       <fn>pthread_mutex_unlock</fn>
       <dir>...</dir>
       <file>drd_pthread_intercepts.c</file>
@@ -73,6 +81,14 @@ thread_func instance 2
   <kind>MutexErr</kind>
   <what>The object at address 0x........ is not a mutex.</what>
   <stack>
+    <frame>
+      <ip>0x........</ip>
+      <obj>...</obj>
+      <fn>pthread_mutex_unlock_intercept</fn>
+      <dir>...</dir>
+      <file>drd_pthread_intercepts.c</file>
+      <line>...</line>
+    </frame>
     <frame>
       <ip>0x........</ip>
       <obj>...</obj>
@@ -112,6 +128,14 @@ thread_func instance 3
     <frame>
       <ip>0x........</ip>
       <obj>...</obj>
+      <fn>pthread_mutex_unlock_intercept</fn>
+      <dir>...</dir>
+      <file>drd_pthread_intercepts.c</file>
+      <line>...</line>
+    </frame>
+    <frame>
+      <ip>0x........</ip>
+      <obj>...</obj>
       <fn>pthread_mutex_unlock</fn>
       <dir>...</dir>
       <file>drd_pthread_intercepts.c</file>
@@ -145,6 +169,14 @@ thread_func instance 4
   <kind>MutexErr</kind>
   <what>The object at address 0x........ is not a mutex.</what>
   <stack>
+    <frame>
+      <ip>0x........</ip>
+      <obj>...</obj>
+      <fn>pthread_mutex_unlock_intercept</fn>
+      <dir>...</dir>
+      <file>drd_pthread_intercepts.c</file>
+      <line>...</line>
+    </frame>
     <frame>
       <ip>0x........</ip>
       <obj>...</obj>
@@ -184,6 +216,14 @@ thread_func instance 5
     <frame>
       <ip>0x........</ip>
       <obj>...</obj>
+      <fn>pthread_mutex_unlock_intercept</fn>
+      <dir>...</dir>
+      <file>drd_pthread_intercepts.c</file>
+      <line>...</line>
+    </frame>
+    <frame>
+      <ip>0x........</ip>
+      <obj>...</obj>
       <fn>pthread_mutex_unlock</fn>
       <dir>...</dir>
       <file>drd_pthread_intercepts.c</file>
@@ -217,6 +257,14 @@ thread_func instance 6
   <kind>MutexErr</kind>
   <what>The object at address 0x........ is not a mutex.</what>
   <stack>
+    <frame>
+      <ip>0x........</ip>
+      <obj>...</obj>
+      <fn>pthread_mutex_unlock_intercept</fn>
+      <dir>...</dir>
+      <file>drd_pthread_intercepts.c</file>
+      <line>...</line>
+    </frame>
     <frame>
       <ip>0x........</ip>
       <obj>...</obj>
@@ -256,6 +304,14 @@ thread_func instance 7
     <frame>
       <ip>0x........</ip>
       <obj>...</obj>
+      <fn>pthread_mutex_unlock_intercept</fn>
+      <dir>...</dir>
+      <file>drd_pthread_intercepts.c</file>
+      <line>...</line>
+    </frame>
+    <frame>
+      <ip>0x........</ip>
+      <obj>...</obj>
       <fn>pthread_mutex_unlock</fn>
       <dir>...</dir>
       <file>drd_pthread_intercepts.c</file>
@@ -289,6 +345,14 @@ thread_func instance 8
   <kind>MutexErr</kind>
   <what>The object at address 0x........ is not a mutex.</what>
   <stack>
+    <frame>
+      <ip>0x........</ip>
+      <obj>...</obj>
+      <fn>pthread_mutex_unlock_intercept</fn>
+      <dir>...</dir>
+      <file>drd_pthread_intercepts.c</file>
+      <line>...</line>
+    </frame>
     <frame>
       <ip>0x........</ip>
       <obj>...</obj>
@@ -328,6 +392,14 @@ thread_func instance 9
     <frame>
       <ip>0x........</ip>
       <obj>...</obj>
+      <fn>pthread_mutex_unlock_intercept</fn>
+      <dir>...</dir>
+      <file>drd_pthread_intercepts.c</file>
+      <line>...</line>
+    </frame>
+    <frame>
+      <ip>0x........</ip>
+      <obj>...</obj>
       <fn>pthread_mutex_unlock</fn>
       <dir>...</dir>
       <file>drd_pthread_intercepts.c</file>
@@ -361,6 +433,14 @@ thread_func instance 10
   <kind>MutexErr</kind>
   <what>The object at address 0x........ is not a mutex.</what>
   <stack>
+    <frame>
+      <ip>0x........</ip>
+      <obj>...</obj>
+      <fn>pthread_mutex_unlock_intercept</fn>
+      <dir>...</dir>
+      <file>drd_pthread_intercepts.c</file>
+      <line>...</line>
+    </frame>
     <frame>
       <ip>0x........</ip>
       <obj>...</obj>

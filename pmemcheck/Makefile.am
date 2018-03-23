@@ -37,6 +37,10 @@ PMEMCHECK_SOURCES_COMMON = \
 	pmc_tx.c \
 	pmc_common.c
 
+if VGCONF_OS_IS_FREEBSD
+PMEMCHECK_SOURCES_COMMON += ../freebsd/version_note.c
+endif
+
 pmemcheck_@VGCONF_ARCH_PRI@_@VGCONF_OS@_SOURCES      = \
 	$(PMEMCHECK_SOURCES_COMMON)
 pmemcheck_@VGCONF_ARCH_PRI@_@VGCONF_OS@_CPPFLAGS     = \
