@@ -1,4 +1,5 @@
 #define __STDC_FORMAT_MACROS
+#define _GLIBCXX_USE_CXX11_ABI 0
 #include <inttypes.h>
 #include <stdio.h>
 #include <unistd.h>

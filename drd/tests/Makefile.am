@@ -85,6 +85,7 @@ EXTRA_DIST =                                        \
 	bar_bad.stderr.exp-solaris		    \
 	bar_bad.vgtest				    \
 	bar_bad_xml.stderr.exp			    \
+	bar_bad_xml.stderr.exp-freebsd		    \
 	bar_bad_xml.stderr.exp-nohang		    \
 	bar_bad_xml.stderr.exp-solaris		    \
 	bar_bad_xml.vgtest			    \

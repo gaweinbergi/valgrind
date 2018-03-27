@@ -7,6 +7,7 @@
 #include <semaphore.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 pthread_mutex_t mx[4]; 
 pthread_cond_t cv; pthread_rwlock_t rwl;
@@ -64,8 +65,15 @@ int main ( void )
 
   r= pthread_create( &my_rescuer, NULL, rescue_me, NULL );  assert(!r);
 
-  /* Do stupid things and hope that rescue_me gets us out of
-     trouble */
+  /*
+   * OSes are interesting things. On Linux, the pthread_cond_*() calls always
+   * succeed, so strange things can happen with bogus parameters and we try to
+   * catch them in DRD and recover here with rescue_me(). On FreeBSD, passing
+   * a totally bogus mutex can cause the system to hang, but providing a
+   * destroyed mutex will return EINVAL, and all the other conditions we test
+   * for here will return EPERM, so for FreeBSD rescue_me() is essentially a
+   * no-op. Other OSes behave somewhere in between.
+   */
 
   /* mx is bogus */
   /* FreeBSD mutexes are dynamically allocated. Passing a bogus address */
@@ -77,15 +85,19 @@ int main ( void )
 #else
   r= pthread_cond_wait(&cv, (pthread_mutex_t*)(4 + (char*)&mx[0]) );
 #endif
+  if (r) fprintf(stderr, "pthread_cond_wait(1): %s\n", strerror(r));
 
   /* mx is not locked */
   r= pthread_cond_wait(&cv, &mx[0]);
+  if (r) fprintf(stderr, "pthread_cond_wait(2): %s\n", strerror(r));
 
   /* wrong flavour of lock */
   r= pthread_cond_wait(&cv, (pthread_mutex_t*)&rwl );
+  if (r) fprintf(stderr, "pthread_cond_wait(3): %s\n", strerror(r));
 
   /* mx is held by someone else. */
   r= pthread_cond_wait(&cv, &mx[2] );
+  if (r) fprintf(stderr, "pthread_cond_wait(4): %s\n", strerror(r));
 
   r= my_sem_post( quit_now ); assert(!r);
   r= my_sem_post( quit_now ); assert(!r);
