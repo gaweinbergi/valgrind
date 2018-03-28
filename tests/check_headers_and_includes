@@ -72,7 +72,8 @@ my %dirs_to_ignore = (
     "tests" => 1,
     "gdbserver_tests" => 1,
     "mpi" => 1,
-    "solaris" => 1
+    "solaris" => 1,
+    "freebsd" => 1
     );
 
 my %tool_export_header = (
