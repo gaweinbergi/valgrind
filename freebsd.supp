@@ -29,6 +29,7 @@
    fun:puts
    fun:main
 }
+
 ##----------------------------------------------------------------------##
 # drd
 ##----------------------------------------------------------------------##
@@ -78,27 +79,23 @@
    ...
 }
 {
-   FreeBSD-vgDrd_sema_destroy
+   FreeBSD-vgDrd_this_is_way_too_broad
    drd:ConflictingAccess
-   ...
    obj:/libexec/ld-elf.so.1
-   ...
-   obj:/libexec/ld-elf.so.1
-   fun:vgDrd_sema_destroy
-   ...
 }
 {
-   FreeBSD-DRD-libgcc-_Unwind_ForcedUnwind
+   FreeBSD-vgDrd_this_is_way_too_broad2
    drd:ConflictingAccess
+   obj:/lib/libthr.so.3
    ...
-   fun:_Unwind_ForcedUnwind
+   obj:/libexec/ld-elf.so.1
 }
 {
    FreeBSD-DRD-libgcc-dl_iterate_phdr
    drd:ConflictingAccess
-   ...
+   obj:/lib/libgcc_s.so.1
    fun:dl_iterate_phdr
-   ...
+   fun:_Unwind_Find_FDE
 }
 
 

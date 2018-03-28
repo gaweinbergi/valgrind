@@ -26,7 +26,6 @@ int main ( void )
 #  else
    // Nb: assuming VG_MIN_MALLOC_SZB is 8 or more...
    int* p;
-   int* piece;
    int  res;
    assert(sizeof(long int) == sizeof(void*));
 
@@ -48,7 +47,7 @@ int main ( void )
    // parameter smaller than the released blocks size to ensure the free is directly
    // executed (otherwise memcheck does not really release the memory and so
    // the bug is not properly tested).
-   piece = malloc(1024 * 1000); assert (piece);
+   int *piece = malloc(1024 * 1000); assert (piece);
    free (piece);
    free (p);
    
