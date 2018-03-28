@@ -77,6 +77,10 @@ check_PROGRAMS = \
 
 AM_CFLAGS   += $(AM_FLAG_M3264_PRI)
 AM_CXXFLAGS += $(AM_FLAG_M3264_PRI)
+if VGCONF_OS_IS_FREEBSD
+AM_CFLAGS   += $(FREEBSD_RPATH)
+AM_CXXFLAGS += $(FREEBSD_RPATH)
+endif
 
 # C++ tests
 new_cpp_SOURCES		= new-cpp.cpp

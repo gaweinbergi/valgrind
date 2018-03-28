@@ -3831,6 +3831,22 @@ AM_CONDITIONAL(SOLARIS_RESERVE_SYSSTAT_ZONE_ADDR, false)
 AM_CONDITIONAL(SOLARIS_SYSTEM_STATS_SYSCALL, false)
 fi # test "$VGCONF_OS" = "solaris"
 
+#----------------------------------------------------------------------------
+# FreeBSD-specific checks.
+#----------------------------------------------------------------------------
+
+if test "$VGCONF_OS" = "freebsd" ; then
+  # Make sure we pick up the library version that matches the compiler
+  if test "$is_clang" = "notclang" ; then
+    AC_MSG_CHECKING([gcc libdir])
+    freebsd_libdir=$(${CC} -v 2>&1 | grep libdir | \
+			perl -p -e 's/(.*)--libdir=(@<:@^ @:>@*) (.*)/$2/')
+    AC_MSG_RESULT([$freebsd_libdir])
+    AC_SUBST(FREEBSD_RPATH, [-Wl,-rpath=$freebsd_libdir])
+  else
+    AC_SUBST(FREEBSD_RPATH, [])
+  fi
+fi
 
 #----------------------------------------------------------------------------
 # Checks for C header files.

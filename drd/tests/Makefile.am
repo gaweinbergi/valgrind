@@ -552,12 +552,18 @@ std_thread_SOURCES          = std_thread.cpp
 std_thread_CXXFLAGS         = $(AM_CXXFLAGS) -std=c++0x
 if !VGCONF_OS_IS_SOLARIS
 std_thread_LDFLAGS          = -Wl,--no-as-needed
+if VGCONF_OS_IS_FREEBSD
+std_thread_LDFLAGS          += $(FREEBSD_RPATH)
+endif
 endif
 
-std_thread2_SOURCES          = std_thread2.cpp
-std_thread2_CXXFLAGS         = $(AM_CXXFLAGS) -std=c++0x
+std_thread2_SOURCES         = std_thread2.cpp
+std_thread2_CXXFLAGS        = $(AM_CXXFLAGS) -std=c++0x
 if !VGCONF_OS_IS_SOLARIS
-std_thread2_LDFLAGS          = -Wl,--no-as-needed
+std_thread2_LDFLAGS         = -Wl,--no-as-needed
+if VGCONF_OS_IS_FREEBSD
+std_thread2_LDFLAGS         += $(FREEBSD_RPATH)
+endif
 endif
 
 sem_wait_SOURCES            = sem_wait.cpp
