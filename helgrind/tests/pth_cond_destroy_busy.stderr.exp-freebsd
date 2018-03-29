@@ -8,7 +8,7 @@ Thread #x is the program's root thread
 Thread #x: pthread_cond_destroy: destruction of condition variable being waited upon
    at 0x........: pthread_cond_destroy_WRK (hg_intercepts.c:...)
    by 0x........: pthread_cond_destroy (hg_intercepts.c:...)
-   by 0x........: main (pth_cond_destroy_busy.c:56)
+   by 0x........: main (pth_cond_destroy_busy.c:64)
 
 First pthread_cond_destroy() call returned success.
 ----------------------------------------------------------------
@@ -17,14 +17,14 @@ Thread #x's call to pthread_cond_signal failed
    with error code 22 (EINVAL: Invalid argument)
    at 0x........: pthread_cond_signal_WRK (hg_intercepts.c:...)
    by 0x........: pthread_cond_signal (hg_intercepts.c:...)
-   by 0x........: main (pth_cond_destroy_busy.c:62)
+   by 0x........: main (pth_cond_destroy_busy.c:70)
 
 ----------------------------------------------------------------
 
 Thread #x: pthread_cond_destroy: destruction of condition variable being waited upon
    at 0x........: pthread_cond_destroy_WRK (hg_intercepts.c:...)
    by 0x........: pthread_cond_destroy (hg_intercepts.c:...)
-   by 0x........: main (pth_cond_destroy_busy.c:70)
+   by 0x........: main (pth_cond_destroy_busy.c:78)
 
 ----------------------------------------------------------------
 
@@ -32,7 +32,7 @@ Thread #x's call to pthread_cond_destroy failed
    with error code 22 (EINVAL: Invalid argument)
    at 0x........: pthread_cond_destroy_WRK (hg_intercepts.c:...)
    by 0x........: pthread_cond_destroy (hg_intercepts.c:...)
-   by 0x........: main (pth_cond_destroy_busy.c:70)
+   by 0x........: main (pth_cond_destroy_busy.c:78)
 
 Second pthread_cond_destroy() call returned EINVAL.
 

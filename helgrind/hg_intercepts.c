@@ -59,6 +59,9 @@
 #include "helgrind.h"
 #include "config.h"
 
+#if defined(VGO_freebsd)
+#include "pub_tool_vki.h"
+#endif
 
 #if defined(VGO_solaris)
 /* See porting comments in drd/drd_pthread_intercepts.c
@@ -799,6 +802,10 @@ PTH_FUNC(int, pthreadZumutexZuinit, // pthread_mutex_init
    if (ret == 0 /*success*/) {
       DO_CREQ_v_WW(_VG_USERREQ__HG_PTHREAD_MUTEX_INIT_POST,
                    pthread_mutex_t*,mutex, long,mbRec);
+#ifdef VGO_freebsd
+      // XXX Is there a better way?
+      VALGRIND_HG_DISABLE_CHECKING(*mutex, sizeof(**mutex));
+#endif
    } else { 
       DO_PthAPIerror( "pthread_mutex_init", ret );
    }
@@ -1544,6 +1551,10 @@ static int pthread_cond_init_WRK(pthread_cond_t* cond, pthread_condattr_t *cond_
    if (ret == 0) {
       DO_CREQ_v_WW(_VG_USERREQ__HG_PTHREAD_COND_INIT_POST,
                    pthread_cond_t*,cond, pthread_condattr_t*, cond_attr);
+#ifdef VGO_freebsd
+      // XXX Is there a better way?
+      VALGRIND_HG_DISABLE_CHECKING(*cond, sizeof(**cond));
+#endif
    } else {
       DO_PthAPIerror( "pthread_cond_init", ret );
    }
@@ -1716,7 +1727,12 @@ PTH_FUNC(int, pthreadZubarrierZuinit, // pthread_barrier_init
 
    CALL_FN_W_WWW(ret, fn, bar,attr,count);
 
-   if (ret != 0) {
+   if (ret == 0) {
+#ifdef VGO_freebsd
+      // XXX Is there a better way?
+      VALGRIND_HG_DISABLE_CHECKING(*bar, sizeof(**bar));
+#endif
+   } else {
       DO_PthAPIerror( "pthread_barrier_init", ret );
    }
 
@@ -2727,6 +2743,10 @@ static int sem_init_WRK(sem_t* sem, int pshared, unsigned long value)
    if (ret == 0) {
       DO_CREQ_v_WW(_VG_USERREQ__HG_POSIX_SEM_INIT_POST,
                    sem_t*, sem, unsigned long, value);
+#ifdef VGO_freebsd
+      // XXX Would this hurt anything on other OSes? Is there a better way?
+      VALGRIND_HG_DISABLE_CHECKING(sem, sizeof(*sem));
+#endif
    } else {
       DO_PthAPIerror( "sem_init", errno );
    }

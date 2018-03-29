@@ -102,82 +102,28 @@
 ##----------------------------------------------------------------------##
 # Helgrind
 ##----------------------------------------------------------------------##
+# FIXME
 {
-   FreeBSD-Helgrind-pthread_exit-1
+   FreeBSD-Helgrind-pthread_exit
    Helgrind:Race
-   fun:_pthread_exit_mask
-   fun:pthread_exit
-   obj:/lib/libthr.so.3
-}
-{
-   FreeBSD-Helgrind-pthread_exit-2
-   Helgrind:Race
-   fun:*thr_exit
    ...
    fun:pthread_exit
    obj:/lib/libthr.so.3
 }
 {
-   FreeBSD-Helgrind-pthread_exit-3
+   FreeBSD-Helgrind-pthread-join
    Helgrind:Race
-   fun:__sys_thr_exit
    obj:/lib/libthr.so.3
-   fun:_pthread_exit_mask
-   fun:pthread_exit
-   obj:/lib/libthr.so.3
-}
-{
-   FreeBSD-Helgrind-pthread_exit-4
-   Helgrind:Race
    ...
-   fun:_Unwind_Find_FDE
-   ...
-   fun:pthread_exit
-   ...
-}
-{
-   FreeBSD-Helgrind-pthread_join
-   Helgrind:Race
-   ...
-   obj:/lib/libthr.so.3
    fun:pthread_join_WRK
    fun:pthread_join
    ...
 }
-{
-   FreeBSD-Helgrind-pthread_barrier_init
-   Helgrind:Race
-   fun:pthread_barrier_init
-   fun:pthread_barrier_init
-   ...
-}
-{
-   FreeBSD-Helgrind-pthread_barrier_destroy
-   Helgrind:Race
-   fun:pthread_barrier_destroy
-   fun:pthread_barrier_destroy
-   ...
-}
-{
-   FreeBSD-Helgrind-pthread_cancel
-   Helgrind:Race
-   fun:pthread_cancel
-   ...
-}
-{
-   FreeBSD-Helgrind-pthread_mutex_lock
-   Helgrind:Race
-   obj: /lib/libthr.so.3
-   obj: /lib/libthr.so.3
-   fun: pthread_mutex_lock
-   fun: pthread_mutex_lock
-   ...
-}
-{
-   FreeBSD-Helgrind-LIBTHR.SO.3
-   Helgrind:Race
-   obj:/lib/libthr.so.3
-}
+#{
+#   FreeBSD-Helgrind-LIBTHR.SO.3
+#   Helgrind:Race
+#   obj:/lib/libthr.so.3
+#}
 {
    FreeBSD-Helgrind-flockfile
    Helgrind:Race

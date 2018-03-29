@@ -1908,6 +1908,16 @@ struct pthread_cond {
 	struct vki_ucond	kcond;
 };
 
+struct pthread_barrier {
+	struct vki_umutex	b_lock;
+	struct vki_ucond	b_cv;
+	int64_t			b_cycle;
+	int			b_count;
+	int			b_waiters;
+	int			b_refcount;
+	int			b_destroying;
+};
+
 //----------------------------------------------------------------------
 // From sys/acl.h
 //----------------------------------------------------------------------

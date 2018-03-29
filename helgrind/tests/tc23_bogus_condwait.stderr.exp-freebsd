@@ -89,4 +89,4 @@ Thread #x's call to pthread_cond_wait failed
 
 pthread_cond_wait(4): Operation not permitted
 
-ERROR SUMMARY: 7 errors from 7 contexts (suppressed: 0 from 0)
+ERROR SUMMARY: 11 errors from 11 contexts (suppressed: 0 from 0)

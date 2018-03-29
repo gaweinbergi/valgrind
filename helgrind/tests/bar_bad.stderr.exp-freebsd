@@ -39,6 +39,33 @@ Thread #x: pthread_barrier_init: threads are waiting at barrier
    at 0x........: pthread_barrier_init (hg_intercepts.c:...)
    by 0x........: main (bar_bad.c:64)
 
+---Thread-Announcement------------------------------------------
+
+Thread #x was created
+   ...
+   by 0x........: pthread_create (hg_intercepts.c:...)
+   by 0x........: main (bar_bad.c:60)
+
+----------------------------------------------------------------
+
+Possible data race during write of size 8 at 0x........ by thread #x
+Locks held: none
+   ...
+   by 0x........: pthread_barrier_init (hg_intercepts.c:...)
+   by 0x........: main (bar_bad.c:64)
+
+This conflicts with a previous read of size 8 by thread #x
+Locks held: none
+   ...
+   by 0x........: pthread_barrier_wait (hg_intercepts.c:...)
+   by 0x........: child1 (bar_bad.c:14)
+   by 0x........: mythread_wrapper (hg_intercepts.c:...)
+   ...
+ Address 0x........ is 0 bytes inside a block of size 8 alloc'd
+   at 0x........: malloc (vg_replace_malloc.c:...)
+   by 0x........: main (bar_bad.c:54)
+ Block was alloc'd by thread #x
+
 
 destroy a barrier that has waiting threads
 ----------------------------------------------------------------

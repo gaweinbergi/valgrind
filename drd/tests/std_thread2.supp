@@ -11,11 +11,31 @@
 {
    pthread_create
    drd:ConflictingAccess
-   fun:pthread_create@@GLIBC_2.2*
+   fun:pthread_create*
 }
 {
    pthread_create
    drd:ConflictingAccess
    fun:allocate_stack
-   fun:pthread_create@@GLIBC_2.2*
+   fun:pthread_create*
+}
+{
+   FreeBSD-dl_iterate_phdr
+   drd:ConflictingAccess
+   fun:dl_iterate_phdr
+}
+{
+   FreeBSD-ld-elf.so.1
+   drd:ConflictingAccess
+   obj:/libexec/ld-elf.so.1
+}
+{
+   FreeBSD-libthr.so.3
+   drd:ConflictingAccess
+   obj:/lib/libthr.so.3
+}
+{
+   FreeBSD-_Unwind_IteratePhdrCallback
+   drd:ConflictingAccess
+   fun:_Unwind_IteratePhdrCallback
 }

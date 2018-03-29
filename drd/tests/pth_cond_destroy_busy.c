@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <stdio.h>     // printf()
 #include <pthread.h>
+#include "helgrind/helgrind.h"
 
 static pthread_mutex_t s_mutex;
 static pthread_cond_t  s_cond;
@@ -43,6 +44,13 @@ int main(int argc, char** argv)
   pthread_t threadid;
   int ret;
 
+#ifdef VGO_freebsd
+  // On FreeBSD, locks are dynamically allocated. Races between the main
+  // and worker threads in situations where POSIX specifies undefined
+  // behavior are not what we are testing, so ignore them.
+  VALGRIND_HG_DISABLE_CHECKING(&s_mutex, sizeof(pthread_mutex_t));
+  VALGRIND_HG_DISABLE_CHECKING(&s_cond, sizeof(pthread_cond_t));
+#endif
   pthread_mutex_init(&s_mutex, 0);
   pthread_cond_init(&s_cond, 0);
 
