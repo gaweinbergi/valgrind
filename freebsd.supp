@@ -102,7 +102,12 @@
 ##----------------------------------------------------------------------##
 # Helgrind
 ##----------------------------------------------------------------------##
-# FIXME
+{
+   FreeBSD-Helgrind-pthread_create
+   Helgrind:Race
+   obj:/lib/libthr.so.3
+   fun:pthread_create
+}
 {
    FreeBSD-Helgrind-pthread_exit
    Helgrind:Race
@@ -111,7 +116,7 @@
    obj:/lib/libthr.so.3
 }
 {
-   FreeBSD-Helgrind-pthread-join
+   FreeBSD-Helgrind-pthread_join
    Helgrind:Race
    obj:/lib/libthr.so.3
    ...
@@ -119,14 +124,11 @@
    fun:pthread_join
    ...
 }
-#{
-#   FreeBSD-Helgrind-LIBTHR.SO.3
-#   Helgrind:Race
-#   obj:/lib/libthr.so.3
-#}
+# XXX: There really is a race in flockfile when a process goes multi-threaded
 {
    FreeBSD-Helgrind-flockfile
    Helgrind:Race
+   ...
    fun:flockfile
    ...
 }

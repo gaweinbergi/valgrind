@@ -8,13 +8,13 @@ Thread #x is the program's root thread
 Thread #x was created
    ...
    by 0x........: pthread_create (hg_intercepts.c:...)
-   by 0x........: main (tc05_simple_race.c:27)
+   by 0x........: main (tc05_simple_race.c:29)
 
 ----------------------------------------------------------------
 
 Possible data race during read of size 4 at 0x........ by thread #x
 Locks held: none
-   at 0x........: main (tc05_simple_race.c:33)
+   at 0x........: main (tc05_simple_race.c:35)
 
 This conflicts with a previous write of size 4 by thread #x
 Locks held: none
@@ -28,7 +28,7 @@ Locks held: none
 
 Possible data race during write of size 4 at 0x........ by thread #x
 Locks held: none
-   at 0x........: main (tc05_simple_race.c:33)
+   at 0x........: main (tc05_simple_race.c:35)
 
 This conflicts with a previous write of size 4 by thread #x
 Locks held: none

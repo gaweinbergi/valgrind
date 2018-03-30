@@ -8,7 +8,7 @@
    original Eraser paper by Savage et al. */
 
 int y = 0, v = 0;
-pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mu;
 
 void* child_fn ( void* arg )
 {
@@ -24,6 +24,8 @@ int main ( void )
 {
    const struct timespec delay = { 0, 100 * 1000 * 1000 };
    pthread_t child;
+   // Our goal here is to check for app races, not pthread_mutex_init races
+   pthread_mutex_init (&mu, NULL);
    if (pthread_create(&child, NULL, child_fn, NULL)) {
       perror("pthread_create");
       exit(1);

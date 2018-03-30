@@ -7,7 +7,7 @@
    ever detect one of them, though.  XXX: apparently not so; Drd and H 3.4 detect both. */
 
 int unprot1 = 0, unprot2 = 0, prot = 0;
-pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mu;
 
 void* child_fn ( void* arg )
 {
@@ -22,7 +22,7 @@ void* child_fn ( void* arg )
 int main ( void )
 {
    pthread_t child;
-
+   pthread_mutex_init(&mu, NULL);
    if (pthread_create(&child, NULL, child_fn, NULL)) {
       perror("pthread_create");
       exit(1);

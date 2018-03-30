@@ -7,10 +7,10 @@
 /* Should see 3 threads exiting in different ways, all holding one (or
    two) locks. */
 
-pthread_mutex_t mxC1  = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t mxC2  = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t mxC2b = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t mxP   = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mxC1;
+pthread_mutex_t mxC2;
+pthread_mutex_t mxC2b;
+pthread_mutex_t mxP;
 
 /* This one exits in the normal way, by joining back */
 void* child_fn1 ( void* arg )
@@ -35,6 +35,11 @@ int main ( void )
 {
    int r;
    pthread_t child1, child2;
+
+   pthread_mutex_init(&mxC1, NULL);
+   pthread_mutex_init(&mxC2, NULL);
+   pthread_mutex_init(&mxC2b, NULL);
+   pthread_mutex_init(&mxP, NULL);
 
    r= pthread_create(&child2, NULL, child_fn2, NULL); assert(!r);
    sleep(1);

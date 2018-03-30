@@ -1886,7 +1886,17 @@ struct vki_umtx_time {
 // From thr_private.h
 //----------------------------------------------------------------------
 
-struct pthread_mutex {	// XXX Really should be prefixed with vki_
+/* XXX These values should be same as those defined in pthread.h */
+#define	VKI_MUTEX_INITIALIZER		((struct pthread_mutex *)NULL)
+#define	VKI_ADAPTIVE_MUTEX_INITIALIZER	((struct pthread_mutex *)1)
+#define	VKI_MUTEX_DESTROYED		((struct pthread_mutex *)2)
+#define	VKI_COND_INITIALIZER		((struct pthread_cond *)NULL)
+#define	VKI_COND_DESTROYED		((struct pthread_cond *)1)
+#define	VKI_RWLOCK_INITIALIZER		((struct pthread_rwlock *)NULL)
+#define	VKI_RWLOCK_DESTROYED		((struct pthread_rwlock *)1)
+
+// XXX pthread_ structures really should be prefixed with vki_
+struct pthread_mutex {
 	struct vki_umutex		m_lock;
 	int				m_flags;
 	int				m_count;
@@ -1916,6 +1926,11 @@ struct pthread_barrier {
 	int			b_waiters;
 	int			b_refcount;
 	int			b_destroying;
+};
+
+struct pthread_rwlock {
+	struct vki_urwlock 	lock;
+	uint32_t		owner;
 };
 
 //----------------------------------------------------------------------

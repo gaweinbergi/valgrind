@@ -249,7 +249,7 @@ static const HChar* lame_strerror ( long err )
       case EDEADLK:     return "EDEADLK: Resource deadlock would occur";
       case EOPNOTSUPP:  return "EOPNOTSUPP: Operation not supported on "
                                "transport endpoint"; /* honest, guv */
-#ifdef ETIME
+#if defined(ETIME)
       case ETIME:       return "ETIME: Timer expired";
 #endif
       default:          return "hg_intercepts.c: lame_strerror(): "
@@ -802,8 +802,8 @@ PTH_FUNC(int, pthreadZumutexZuinit, // pthread_mutex_init
    if (ret == 0 /*success*/) {
       DO_CREQ_v_WW(_VG_USERREQ__HG_PTHREAD_MUTEX_INIT_POST,
                    pthread_mutex_t*,mutex, long,mbRec);
-#ifdef VGO_freebsd
-      // XXX Is there a better way?
+#if defined(VGO_freebsd)
+      // Probably redundant with doing this in pthread_mutex_lock
       VALGRIND_HG_DISABLE_CHECKING(*mutex, sizeof(**mutex));
 #endif
    } else { 
@@ -931,7 +931,12 @@ static int mutex_lock_WRK(pthread_mutex_t *mutex)
    DO_CREQ_v_WW(_VG_USERREQ__HG_PTHREAD_MUTEX_LOCK_POST,
                 pthread_mutex_t *, mutex, long, (ret == 0) ? True : False);
 
-   if (ret != 0) {
+   if (ret == 0) {
+#if defined(VGO_freebsd)
+      // For the case where pthread_mutex_init was not previously called
+      VALGRIND_HG_DISABLE_CHECKING(*mutex, sizeof(**mutex));
+#endif
+   } else {
       DO_PthAPIerror( "pthread_mutex_lock", ret );
    }
 
@@ -1551,8 +1556,7 @@ static int pthread_cond_init_WRK(pthread_cond_t* cond, pthread_condattr_t *cond_
    if (ret == 0) {
       DO_CREQ_v_WW(_VG_USERREQ__HG_PTHREAD_COND_INIT_POST,
                    pthread_cond_t*,cond, pthread_condattr_t*, cond_attr);
-#ifdef VGO_freebsd
-      // XXX Is there a better way?
+#if defined(VGO_freebsd)
       VALGRIND_HG_DISABLE_CHECKING(*cond, sizeof(**cond));
 #endif
    } else {
@@ -1728,8 +1732,7 @@ PTH_FUNC(int, pthreadZubarrierZuinit, // pthread_barrier_init
    CALL_FN_W_WWW(ret, fn, bar,attr,count);
 
    if (ret == 0) {
-#ifdef VGO_freebsd
-      // XXX Is there a better way?
+#if defined(VGO_freebsd)
       VALGRIND_HG_DISABLE_CHECKING(*bar, sizeof(**bar));
 #endif
    } else {
@@ -2088,6 +2091,10 @@ static int pthread_rwlock_init_WRK(pthread_rwlock_t *rwl,
    if (ret == 0 /*success*/) {
       DO_CREQ_v_W(_VG_USERREQ__HG_PTHREAD_RWLOCK_INIT_POST,
                   pthread_rwlock_t*,rwl);
+#if defined(VGO_freebsd)
+      // Probably redundant with doing this in pthread_rwlock_*lock
+      VALGRIND_HG_DISABLE_CHECKING(*rwl, sizeof(**rwl));
+#endif
    } else { 
       DO_PthAPIerror( "pthread_rwlock_init", ret );
    }
@@ -2235,7 +2242,12 @@ static int pthread_rwlock_wrlock_WRK(pthread_rwlock_t* rwlock)
    DO_CREQ_v_WWW(_VG_USERREQ__HG_PTHREAD_RWLOCK_LOCK_POST,
                  pthread_rwlock_t*,rwlock, long,1/*isW*/,
                  long, (ret == 0) ? True : False);
-   if (ret != 0) {
+   if (ret == 0) {
+#if defined(VGO_freebsd)
+      // For the case where pthread_rwlock_init was not previously called
+      VALGRIND_HG_DISABLE_CHECKING(*rwlock, sizeof(**rwlock));
+#endif
+   } else {
       DO_PthAPIerror( "pthread_rwlock_wrlock", ret );
    }
 
@@ -2321,7 +2333,12 @@ static int pthread_rwlock_rdlock_WRK(pthread_rwlock_t* rwlock)
    DO_CREQ_v_WWW(_VG_USERREQ__HG_PTHREAD_RWLOCK_LOCK_POST,
                  pthread_rwlock_t*,rwlock, long,0/*!isW*/,
                  long, (ret == 0) ? True : False);
-   if (ret != 0) {
+   if (ret == 0) {
+#if defined(VGO_freebsd)
+      // For the case where pthread_rwlock_init was not previously called
+      VALGRIND_HG_DISABLE_CHECKING(*rwlock, sizeof(**rwlock));
+#endif
+   } else {
       DO_PthAPIerror( "pthread_rwlock_rdlock", ret );
    }
 
@@ -2412,8 +2429,13 @@ static int pthread_rwlock_trywrlock_WRK(pthread_rwlock_t* rwlock)
    DO_CREQ_v_WWW(_VG_USERREQ__HG_PTHREAD_RWLOCK_LOCK_POST,
                  pthread_rwlock_t*,rwlock, long,1/*isW*/,
                  long, (ret == 0) ? True : False);
-   if (ret != 0) {
-      if (ret != EBUSY)
+   if (ret == 0) {
+#if defined(VGO_freebsd)
+      // For the case where pthread_rwlock_init was not previously called
+      // (If the lock is busy, by definition the lock has been initialized)
+      VALGRIND_HG_DISABLE_CHECKING(*rwlock, sizeof(**rwlock));
+#endif
+   } else if (ret != EBUSY) {
          DO_PthAPIerror( "pthread_rwlock_trywrlock", ret );
    }
 
@@ -2479,8 +2501,13 @@ static int pthread_rwlock_tryrdlock_WRK(pthread_rwlock_t* rwlock)
                 pthread_rwlock_t*,rwlock, long,0/*!isW*/,
                 long, (ret == 0) ? True : False);
 
-   if (ret != 0) {
-      if (ret != EBUSY)
+   if (ret == 0) {
+#if defined(VGO_freebsd)
+      // For the case where pthread_rwlock_init was not previously called
+      // (If the lock is busy, by definition the lock has been initialized)
+      VALGRIND_HG_DISABLE_CHECKING(*rwlock, sizeof(**rwlock));
+#endif
+   } else if (ret != EBUSY) {
          DO_PthAPIerror( "pthread_rwlock_tryrdlock", ret );
    }
 
@@ -2541,7 +2568,12 @@ static int pthread_rwlock_timedrdlock_WRK(pthread_rwlock_t *rwlock,
    DO_CREQ_v_WWW(_VG_USERREQ__HG_PTHREAD_RWLOCK_LOCK_POST,
                  pthread_rwlock_t *, rwlock, long, 0/*isW*/,
                  long, (ret == 0) ? True : False);
-   if (ret != 0) {
+   if (ret == 0) {
+#if defined(VGO_freebsd)
+      // For the case where pthread_rwlock_init was not previously called
+      VALGRIND_HG_DISABLE_CHECKING(*rwlock, sizeof(**rwlock));
+#endif
+   } else {
       DO_PthAPIerror("pthread_rwlock_timedrdlock", ret);
    }
 
@@ -2601,7 +2633,12 @@ static int pthread_rwlock_timedwrlock_WRK(pthread_rwlock_t *rwlock,
    DO_CREQ_v_WWW(_VG_USERREQ__HG_PTHREAD_RWLOCK_LOCK_POST,
                  pthread_rwlock_t *, rwlock, long, 1/*isW*/,
                  long, (ret == 0) ? True : False);
-   if (ret != 0) {
+   if (ret == 0) {
+#if defined(VGO_freebsd)
+      // For the case where pthread_rwlock_init was not previously called
+      VALGRIND_HG_DISABLE_CHECKING(*rwlock, sizeof(**rwlock));
+#endif
+   } else {
       DO_PthAPIerror("pthread_rwlock_timedwrlock", ret);
    }
 
@@ -2743,8 +2780,7 @@ static int sem_init_WRK(sem_t* sem, int pshared, unsigned long value)
    if (ret == 0) {
       DO_CREQ_v_WW(_VG_USERREQ__HG_POSIX_SEM_INIT_POST,
                    sem_t*, sem, unsigned long, value);
-#ifdef VGO_freebsd
-      // XXX Would this hurt anything on other OSes? Is there a better way?
+#if defined(VGO_freebsd)
       VALGRIND_HG_DISABLE_CHECKING(sem, sizeof(*sem));
 #endif
    } else {
