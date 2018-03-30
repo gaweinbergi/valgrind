@@ -3843,8 +3843,6 @@ if test "$VGCONF_OS" = "freebsd" ; then
 			perl -p -e 's/(.*)--libdir=(@<:@^ @:>@*) (.*)/$2/')
     AC_MSG_RESULT([$freebsd_libdir])
     AC_SUBST(FREEBSD_RPATH, [-Wl,-rpath=$freebsd_libdir])
-  else
-    AC_SUBST(FREEBSD_RPATH, [])
   fi
 fi
 
